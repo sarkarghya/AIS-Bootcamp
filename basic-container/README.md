@@ -1,0 +1,243 @@
+I'll provide you with a complete Go implementation for a basic container runtime without pivot_root, along with step-by-step procedures to build and test it.
+
+## Basic Container Implementation
+
+Here's the Go code for a minimal container runtime:
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"syscall"
+)
+
+func main() {
+	if len(os.Args)  [args...]")
+	}
+
+	switch os.Args[1] {
+	case "run":
+		run()
+	case "child":
+		child()
+	default:
+		log.Fatal("Usage: container run  [args...]")
+	}
+}
+
+func run() {
+	fmt.Printf("Running %v as PID %d\n", os.Args[2:], os.Getpid())
+	
+	// Re-execute ourselves with "child" argument to create new namespaces
+	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, os.Args[2:]...)...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
+	// Create new namespaces
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS |   // UTS namespace (hostname)
+			syscall.CLONE_NEWPID |           // PID namespace
+			syscall.CLONE_NEWNS |            // Mount namespace
+			syscall.CLONE_NEWIPC |           // IPC namespace
+			syscall.CLONE_NEWUSER,           // User namespace
+		UidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getuid(), Size: 1},
+		},
+		GidMappings: []syscall.SysProcIDMap{
+			{ContainerID: 0, HostID: os.Getgid(), Size: 1},
+		},
+	}
+	
+	must(cmd.Run())
+}
+
+func child() {
+	fmt.Printf("Running %v as PID %d in container\n", os.Args[2:], os.Getpid())
+	
+	// Set hostname to make it feel more container-like
+	must(syscall.Sethostname([]byte("container")))
+	
+	// Mount proc filesystem for the new PID namespace
+	must(syscall.Mount("proc", "/proc", "proc", 0, ""))
+	defer syscall.Unmount("/proc", 0)
+	
+	// Execute the requested command
+	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
+	must(cmd.Run())
+}
+
+func must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+```
+
+## Step-by-Step Setup and Testing Procedures
+
+### **Step 1: Create the Project**
+
+```bash
+# Create a new directory for the project
+mkdir basic-container
+cd basic-container
+
+# Initialize Go module
+go mod init basic-container
+
+# Create the main.go file with the code above
+nano main.go
+```
+
+### **Step 2: Build the Container Runtime**
+
+```bash
+# Build the binary
+go build -o container main.go
+
+# Make it executable
+chmod +x container
+```
+
+### **Step 3: Basic Testing**
+
+**Test 1: Run a simple command**
+```bash
+# Run echo command in container
+./container run echo "Hello from container!"
+```
+
+**Expected output:**
+```
+Running [echo Hello from container!] as PID 1234
+Running [echo Hello from container!] as PID 1 in container
+Hello from container!
+```
+
+**Test 2: Check PID isolation**
+```bash
+# Run ps command to see process isolation
+./container run ps aux
+```
+
+You should see that the ps command runs as PID 1 inside the container.
+
+**Test 3: Check hostname isolation**
+```bash
+# Check hostname inside container
+./container run hostname
+```
+
+**Expected output:**
+```
+container
+```
+
+Compare with host hostname:
+```bash
+hostname
+```
+
+### **Step 4: Interactive Testing**
+
+**Test 4: Run an interactive shell**
+```bash
+# Run bash in container (if available)
+./container run bash
+
+# Or try sh
+./container run sh
+```
+
+Inside the container shell, try these commands to verify isolation:
+```bash
+# Check PID (should be 1)
+echo $$
+
+# Check hostname (should be "container")
+hostname
+
+# Check process list
+ps aux
+
+# Exit the container
+exit
+```
+
+### **Step 5: Advanced Verification**
+
+**Test 5: Verify namespace isolation**
+
+Create a test script to compare host vs container:
+
+```bash
+# Create test script
+cat > test_isolation.sh << 'EOF'
+#!/bin/bash
+echo "=== Host Information ==="
+echo "PID: $$"
+echo "Hostname: $(hostname)"
+echo "Processes: $(ps aux | wc -l)"
+echo ""
+echo "=== Container Information ==="
+./container run bash -c 'echo "PID: $$"; echo "Hostname: $(hostname)"; echo "Processes: $(ps aux | wc -l)"'
+EOF
+
+chmod +x test_isolation.sh
+./test_isolation.sh
+```
+
+### **Step 6: Error Testing**
+
+**Test 6: Test error handling**
+```bash
+# Try running non-existent command
+./container run nonexistent-command
+
+# Try with no arguments
+./container run
+```
+
+## Verification Checklist
+
+To verify your container is working correctly, check these items:
+
+- **✓ PID Isolation**: Commands inside container should show PID 1
+- **✓ Hostname Isolation**: Container hostname should be "container"
+- **✓ Process Isolation**: `ps aux` inside container shows fewer processes
+- **✓ User Namespace**: Container runs as root (UID 0) even if host user isn't root
+- **✓ Mount Namespace**: `/proc` is properly mounted inside container
+- **✓ IPC Isolation**: Container has separate IPC namespace
+
+## Troubleshooting
+
+**If you get permission errors:**
+```bash
+# Some systems require additional capabilities
+sudo ./container run bash
+```
+
+**If proc mount fails:**
+```bash
+# Ensure /proc exists and is accessible
+ls -la /proc
+```
+
+**For debugging, add verbose output:**
+```go
+// Add this to the child() function for debugging
+fmt.Printf("UID: %d, GID: %d\n", os.Getuid(), os.Getgid())
+fmt.Printf("PID: %d\n", os.Getpid())
+```
+
+This basic container implementation demonstrates the core concepts of containerization using Linux namespaces[1][2][3]. While it doesn't include pivot_root for filesystem isolation, it provides PID, UTS, mount, IPC, and user namespace isolation, giving you a foundation to understand how container runtimes work internally.
+
