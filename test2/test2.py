@@ -319,16 +319,9 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
     chroot {chroot_dir} {' '.join(command)}
     """
     
-    print(f"Running in cgroup {cgroup_name} with chroot {chroot_dir}")
-    
     try:
-        result = subprocess.run(['sh', '-c', script], 
-                              capture_output=True, text=True, timeout=60)
-        print(f"Exit code: {result.returncode}")
-        if result.stdout:
-            print(f"stdout:\n{result.stdout}")
-        if result.stderr:
-            print(f"stderr:\n{result.stderr}")
+        # Run without capturing output so we see it in real-time
+        result = subprocess.run(['sh', '-c', script], timeout=60)
         return result
     except subprocess.TimeoutExpired:
         print("Command timed out after 60 seconds")
@@ -338,36 +331,118 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
         return None
 
 
+def test_memory_simple(cgroup_name="demo", memory_limit="100M"):
+    """
+    Simple memory test that matches the user's manual example exactly
+    """
+    python_code = '''
+data = []
+for i in range(100):
+    data.append('x' * 10 * 1024 * 1024)  # 10MB chunks
+    print(f'Allocated {(i+1)*10}MB', flush=True)
+'''
+    
+    print(f"Testing memory allocation with {memory_limit} limit:")
+    print("(This should show allocations and then get killed)")
+    
+    # Create cgroup
+    create_cgroup(cgroup_name, memory_limit=memory_limit)
+    
+    # Run the exact command that worked for the user
+    script = f"""
+    echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
+    chroot extracted_python/ /bin/sh -c "python3 -c '{python_code}'"
+    """
+    
+    import subprocess
+    import signal
+    try:
+        # Use Popen to get real-time output and better control
+        process = subprocess.Popen(['sh', '-c', script], 
+                                 stdout=subprocess.PIPE, 
+                                 stderr=subprocess.STDOUT,
+                                 universal_newlines=True)
+        
+        # Stream output in real-time
+        if process.stdout:
+            for line in iter(process.stdout.readline, ''):
+                print(line.strip())
+        
+        process.wait(timeout=60)
+        
+        # Check how the process ended
+        if process.returncode == 0:
+            print("\n⚠ Process completed normally - memory limit may not be working")
+        elif process.returncode == -signal.SIGKILL or process.returncode == 137:
+            print("\n✓ Process was KILLED (likely by OOM killer) - memory limit working!")
+            print("   Return code 137 = 128 + 9 (SIGKILL)")
+        elif process.returncode < 0:
+            print(f"\n✓ Process was killed by signal {-process.returncode}")
+        else:
+            print(f"\n? Process exited with code {process.returncode}")
+        
+        return process.returncode
+    except subprocess.TimeoutExpired:
+        print("\n✗ Test timed out")
+        return None
+    except Exception as e:
+        print(f"\n✗ Error: {e}")
+        return None
+
+
 def test_memory_allocation(cgroup_name="demo", memory_limit="100M"):
     """
     Test memory allocation in a cgroup with chroot
     This should trigger the memory limit and cause the process to be killed
     """
     python_code = '''
-import random
 data = []
 for i in range(100):
-    # Use random data to prevent optimization
-    data.append(str(random.random()) * 10 * 1024 * 1024)  # 10MB chunks
+    # Use 'x' string pattern like in the manual test
+    data.append('x' * 10 * 1024 * 1024)  # 10MB chunks
     print(f"Allocated {(i+1)*10}MB", flush=True)
 '''
     
-    return run_in_cgroup_chroot(
+    print(f"Running memory test with {memory_limit} limit in cgroup '{cgroup_name}'")
+    print("Expected: Process should be killed when memory limit is exceeded")
+    print("Output from inside chroot:")
+    print("-" * 30)
+    
+    result = run_in_cgroup_chroot(
         cgroup_name=cgroup_name,
         chroot_dir="./extracted_python",
         command=f"python3 -c '{python_code}'",
         memory_limit=memory_limit
     )
+    
+    print("-" * 30)
+    if result and result.returncode != 0:
+        print(f"✓ Process was killed (exit code: {result.returncode}) - Memory limit working!")
+    elif result and result.returncode == 0:
+        print("⚠ Process completed normally - Memory limit may not be working")
+    else:
+        print("✗ Test failed or timed out")
+    
+    return result
 
 
 # %% Test basic chroot functionality
+print("\n" + "="*50)
+print("TESTING CHROOT FUNCTIONALITY")
+print("="*50)
 print("Testing chroot Python version:")
 test_chroot_python()
 
-# %% Test memory allocation with 100M limit - should crash
-print("Testing memory allocation with 100M limit (should crash):")
-test_memory_allocation(cgroup_name="demo", memory_limit="1000000")
+# %% Test memory allocation with reasonable limits
+print("\n" + "="*50)
+print("TESTING CGROUP MEMORY LIMITS")
+print("="*50)
 
-# %% Test with 1GB limit - should work longer
-print("Testing memory allocation with 1GB limit:")
-test_memory_allocation(cgroup_name="demo2", memory_limit="1000M")
+print("\n1. Testing memory allocation with 100MB limit (should crash around 100MB):")
+test_memory_simple(cgroup_name="demo", memory_limit="100M")
+
+print("\n2. Testing memory allocation with 200MB limit (should crash around 200MB):")
+test_memory_simple(cgroup_name="demo2", memory_limit="200M")
+
+print("\n3. Testing memory allocation with 50MB limit (should crash quickly):")
+test_memory_simple(cgroup_name="demo3", memory_limit="50M")
