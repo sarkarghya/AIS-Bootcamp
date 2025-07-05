@@ -228,6 +228,83 @@ def test_chroot_python():
 
 
 # %% Cgroup management functions
+def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
+    """
+    Create a cgroup with comprehensive settings to ensure memory limits work properly
+    
+    Args:
+        cgroup_name: Name of the cgroup (e.g., 'demo')
+        memory_limit: Memory limit (e.g., '100M', '1000000')
+        cpu_limit: CPU limit (not implemented yet)
+    """
+    import subprocess
+    import os
+    
+    cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
+    
+    print(f"Setting up comprehensive cgroup: {cgroup_name}")
+    
+    # Create cgroup directory
+    os.makedirs(cgroup_path, exist_ok=True)
+    print(f"✓ Created cgroup directory: {cgroup_path}")
+    
+    # Enable controllers in parent cgroup
+    try:
+        with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
+            f.write("+cpu +memory +pids")
+        print("✓ Enabled cgroup controllers")
+    except Exception as e:
+        print(f"Warning: Could not enable controllers: {e}")
+    
+    # Set memory limit if specified
+    if memory_limit:
+        memory_max_path = f"{cgroup_path}/memory.max"
+        try:
+            with open(memory_max_path, "w") as f:
+                f.write(str(memory_limit))
+            print(f"✓ Set memory limit to {memory_limit}")
+        except Exception as e:
+            print(f"✗ Error setting memory limit: {e}")
+            return None
+    
+    # Disable swap for this cgroup (forces hard memory limit)
+    try:
+        swap_max_path = f"{cgroup_path}/memory.swap.max"
+        with open(swap_max_path, "w") as f:
+            f.write("0")
+        print("✓ Disabled swap for cgroup")
+    except Exception as e:
+        print(f"Warning: Could not disable swap: {e}")
+    
+    # Set OOM killer to be more aggressive for this cgroup
+    try:
+        oom_group_path = f"{cgroup_path}/memory.oom.group"
+        with open(oom_group_path, "w") as f:
+            f.write("1")
+        print("✓ Enabled OOM group killing")
+    except Exception as e:
+        print(f"Warning: Could not set OOM group: {e}")
+    
+    # Set low memory.high to trigger pressure before hitting max
+    if memory_limit:
+        try:
+            # Parse memory limit to set memory.high to 90% of max
+            if memory_limit.endswith('M'):
+                limit_mb = int(memory_limit[:-1])
+                high_limit = f"{int(limit_mb * 0.9)}M"
+            else:
+                high_limit = str(int(int(memory_limit) * 0.9))
+            
+            memory_high_path = f"{cgroup_path}/memory.high"
+            with open(memory_high_path, "w") as f:
+                f.write(high_limit)
+            print(f"✓ Set memory.high to {high_limit} (90% of max)")
+        except Exception as e:
+            print(f"Warning: Could not set memory.high: {e}")
+    
+    return cgroup_path
+
+
 def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
     """
     Create a cgroup with specified limits
@@ -331,6 +408,124 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
         return None
 
 
+def test_memory_comprehensive(cgroup_name="demo", memory_limit="100M"):
+    """
+    Comprehensive memory test that properly sets up cgroups with all necessary settings
+    including oom_score_adj to ensure the memory limit is enforced
+    """
+    print(f"Testing memory allocation with {memory_limit} limit (comprehensive setup):")
+    print("(This should properly enforce the cgroup memory limit)")
+    
+    # Create cgroup with comprehensive settings
+    cgroup_path = create_cgroup_comprehensive(cgroup_name, memory_limit=memory_limit)
+    if not cgroup_path:
+        print("✗ Failed to create cgroup")
+        return None
+    
+    # Create the test script with proper oom_score_adj setting
+    script = f"""
+    # Add process to cgroup
+    echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
+    
+    # Set oom_score_adj to make this process more likely to be killed
+    echo 1000 > /proc/self/oom_score_adj
+    
+    # Verify we're in the cgroup
+    echo "Process in cgroup:"
+    cat /proc/self/cgroup | grep {cgroup_name}
+    
+    # Verify memory limits
+    echo "Memory limit: $(cat /sys/fs/cgroup/{cgroup_name}/memory.max)"
+    echo "Memory high: $(cat /sys/fs/cgroup/{cgroup_name}/memory.high)"
+    
+    # Run the memory test in chroot
+    chroot extracted_python/ /bin/sh << 'EOF'
+    # Set oom_score_adj in chroot as well
+    echo 1000 > /proc/self/oom_score_adj
+    
+    python3 -c "
+import os
+import time
+
+print('Starting memory allocation test...')
+print('Process PID:', os.getpid())
+
+# Try to add ourselves to cgroup again inside chroot
+try:
+    with open('/sys/fs/cgroup/{cgroup_name}/cgroup.procs', 'w') as f:
+        f.write(str(os.getpid()))
+    print('Added Python process to cgroup')
+except Exception as e:
+    print('Warning: Could not add Python process to cgroup:', e)
+
+# Set oom_score_adj for Python process
+try:
+    with open('/proc/self/oom_score_adj', 'w') as f:
+        f.write('1000')
+    print('Set oom_score_adj=1000 for Python process')
+except Exception as e:
+    print('Warning: Could not set oom_score_adj:', e)
+
+data = []
+for i in range(200):  # Allocate up to 2GB if not killed
+    data.append('x' * 10 * 1024 * 1024)  # 10MB chunks
+    allocated_mb = (i+1) * 10
+    print('Allocated ' + str(allocated_mb) + 'MB', flush=True)
+    
+    # Add a small delay to make killing more predictable
+    time.sleep(0.01)
+    
+    # Check if we're approaching the limit
+    if allocated_mb % 50 == 0:
+        try:
+            with open('/sys/fs/cgroup/{cgroup_name}/memory.current', 'r') as f:
+                current = int(f.read().strip())
+                current_mb = current // (1024 * 1024)
+                print('Cgroup memory usage: ' + str(current_mb) + 'MB', flush=True)
+        except:
+            pass
+
+print('Test completed - this should not be reached if limits work!')
+"
+EOF
+    """
+    
+    import subprocess
+    import signal
+    try:
+        # Use Popen to get real-time output
+        process = subprocess.Popen(['sh', '-c', script], 
+                                 stdout=subprocess.PIPE, 
+                                 stderr=subprocess.STDOUT,
+                                 universal_newlines=True)
+        
+        # Stream output in real-time
+        if process.stdout:
+            for line in iter(process.stdout.readline, ''):
+                print(line.strip())
+        
+        process.wait(timeout=60)
+        
+        # Check how the process ended
+        if process.returncode == 0:
+            print("\n⚠ Process completed normally - cgroup memory limit NOT working")
+        elif process.returncode == -signal.SIGKILL or process.returncode == 137:
+            print("\n✓ Process was KILLED - cgroup memory limit working!")
+            print("   Return code 137 = 128 + 9 (SIGKILL)")
+        elif process.returncode < 0:
+            print(f"\n✓ Process was killed by signal {-process.returncode}")
+        else:
+            print(f"\n? Process exited with code {process.returncode}")
+        
+        return process.returncode
+    except subprocess.TimeoutExpired:
+        print("\n✗ Test timed out")
+        return None
+    except Exception as e:
+        print(f"\n✗ Error: {e}")
+        return None
+
+
 def test_memory_simple(cgroup_name="demo", memory_limit="100M"):
     """
     Simple memory test that matches the user's manual example exactly
@@ -390,41 +585,6 @@ EOF
         return None
 
 
-def test_memory_allocation(cgroup_name="demo", memory_limit="100M"):
-    """
-    Test memory allocation in a cgroup with chroot
-    This should trigger the memory limit and cause the process to be killed
-    """
-    python_code = '''
-data = []
-for i in range(100):
-    # Use 'x' string pattern like in the manual test
-    data.append('x' * 10 * 1024 * 1024)  # 10MB chunks
-    print("Allocated " + str((i+1)*10) + "MB", flush=True)
-'''
-    
-    print(f"Running memory test with {memory_limit} limit in cgroup '{cgroup_name}'")
-    print("Expected: Process should be killed when memory limit is exceeded")
-    print("Output from inside chroot:")
-    print("-" * 30)
-    
-    result = run_in_cgroup_chroot(
-        cgroup_name=cgroup_name,
-        chroot_dir="./extracted_python",
-        command=f"python3 -c '{python_code}'",
-        memory_limit=memory_limit
-    )
-    
-    print("-" * 30)
-    if result and result.returncode != 0:
-        print(f"✓ Process was killed (exit code: {result.returncode}) - Memory limit working!")
-    elif result and result.returncode == 0:
-        print("⚠ Process completed normally - Memory limit may not be working")
-    else:
-        print("✗ Test failed or timed out")
-    
-    return result
-
 
 # %% Test basic chroot functionality
 print("\n" + "="*50)
@@ -441,8 +601,9 @@ print("="*50)
 print("\n1. Testing memory allocation with 100MB limit (should crash around 100MB):")
 test_memory_simple(cgroup_name="demo", memory_limit="100M")
 
-print("\n2. Testing memory allocation with 200MB limit (should crash around 200MB):")
-test_memory_simple(cgroup_name="demo2", memory_limit="200M")
+# Uncomment these after the comprehensive test works:
+# print("\n2. Testing memory allocation with 50MB limit (should crash quickly):")
+test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
 
-print("\n3. Testing memory allocation with 50MB limit (should crash quickly):")
-test_memory_simple(cgroup_name="demo3", memory_limit="50M")
+# print("\n3. Testing memory allocation with 50MB limit (should crash quickly):")
+# test_memory_simple(cgroup_name="demo3", memory_limit="50M")
