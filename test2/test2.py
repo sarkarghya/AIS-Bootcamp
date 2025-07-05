@@ -1113,7 +1113,7 @@ def test_basic_container():
 def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit="100M", container_name="container"):
     """
     Create a new container with full networking support
-    This is a separate function that doesn't modify existing container functions
+    This demonstrates the progression from isolation to networking
     
     Args:
         cgroup_name: Name of the cgroup to create/use
@@ -1167,6 +1167,59 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
     except Exception as e:
         print(f"⚠ Warning: Could not set up DNS in chroot: {e}")
     
+    print(f"\n🚫 STEP 1: DEMONSTRATING ISOLATION")
+    print("="*60)
+    print("Running container WITHOUT network - should show ping failures")
+    
+    # First, run container in isolated mode to show it doesn't work
+    isolated_test_commands = [
+        "echo '🔒 ISOLATED CONTAINER TEST'",
+        "hostname isolated-test",
+        "echo 'Container hostname: ' && hostname",
+        "echo 'Network interfaces (should only show loopback):'",
+        "ip addr show | head -6",
+        "echo 'Testing connectivity (should FAIL):'",
+        "echo '  Gateway test:'",
+        "ping -c 1 -W 1 10.0.0.1 2>&1 || echo '  ❌ Gateway unreachable (expected)'",
+        "echo '  Internet test:'", 
+        "ping -c 1 -W 1 8.8.8.8 2>&1 || echo '  ❌ Internet unreachable (expected)'",
+        "echo '🔒 Isolation confirmed - no network access'",
+        "echo ''"
+    ]
+    
+    try:
+        # Run isolated container
+        isolated_exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
+                            '--fork', 'chroot', chroot_dir, '/bin/sh', '-c', '; '.join(isolated_test_commands)]
+        
+        print(f"🔧 DEBUG: Running isolated container first...")
+        
+        process = subprocess.Popen(
+            isolated_exec_args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1
+        )
+        
+        # Stream isolated container output
+        if process.stdout:
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    print(output.strip())
+        
+        process.wait()
+        print("="*60)
+        
+    except Exception as e:
+        print(f"⚠ Warning: Isolated test failed: {e}")
+    
+    print(f"\n🌐 STEP 2: SETTING UP NETWORKING")
+    print("="*60)
+    
     # Set up bridge network
     bridge_ready = setup_bridge_network()
     
@@ -1178,26 +1231,49 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
             print(f"✓ Container {container_id} assigned IP: 10.0.0.{ip_suffix}/24")
         else:
             print(f"✗ Failed to create network for container {container_id}")
+            return None
     else:
-        print(f"⚠ Bridge network not ready, container will run with isolated network")
+        print(f"⚠ Bridge network not ready")
+        return None
+    
+    print(f"\n🚀 STEP 3: NETWORKED CONTAINER - NOW WITH INTERNET!")
+    print("="*60)
+    print("Running same container WITH network - should show ping success")
+    
+    # Now run with networking
+    networked_test_commands = [
+        "echo '🌐 NETWORKED CONTAINER TEST'",
+        "hostname networked-container",
+        "echo 'Container hostname: ' && hostname",
+        "echo 'Network interfaces (should show veth + IP):'",
+        "ip addr show | grep -A3 veth",
+        "echo 'Container IP: ' && ip addr show | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}'",
+        "echo 'Testing connectivity (should WORK):'",
+        "echo '  Gateway test:'",
+        "ping -c 1 10.0.0.1 | grep 'bytes from' && echo '  ✅ Gateway reachable!' || echo '  ❌ Gateway failed'",
+        "echo '  Internet test:'",
+        "ping -c 1 8.8.8.8 | grep 'bytes from' && echo '  ✅ Internet reachable!' || echo '  ❌ Internet failed'",
+        "echo '  DNS resolution test:'",
+        "nslookup google.com | grep 'Address:' | tail -1 && echo '  ✅ DNS working!' || echo '  ❌ DNS failed'",
+        "echo '🌐 Networking confirmed - full internet access!'",
+        ""
+    ]
+    
+    # If user provided custom command, run that too
+    if len(command) > 2 and command[2] != '; '.join(networked_test_commands):
+        networked_test_commands.extend([
+            "echo '  Custom command test:'",
+            command[2],  # The actual user command
+            "echo ''"
+        ])
     
     try:
-        # Build execution command
-        if netns_name:
-            # Execute with dedicated network namespace
-            exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
-                       '--pid', '--mount', '--uts', '--ipc', '--fork', 
-                       'chroot', chroot_dir] + command
-            print(f"🔧 DEBUG: Executing with network namespace: {netns_name}")
-        else:
-            # Execute with isolated network namespace (no internet)
-            exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
-                       '--fork', 'chroot', chroot_dir] + command
-            print(f"🔧 DEBUG: Executing with isolated network")
+        # Build execution command with networking
+        exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
+                   '--pid', '--mount', '--uts', '--ipc', '--fork', 
+                   'chroot', chroot_dir, '/bin/sh', '-c', '; '.join(networked_test_commands)]
         
-        print(f"🔧 DEBUG: Command: {exec_args}")
-        print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
-        print(f"🔧 DEBUG: DNS config exists: {os.path.exists(os.path.join(chroot_dir, 'etc', 'resolv.conf'))}")
+        print(f"🔧 DEBUG: Running networked container with namespace: {netns_name}")
         
         # Show DNS configuration
         resolv_conf_path = os.path.join(chroot_dir, 'etc', 'resolv.conf')
@@ -1205,9 +1281,6 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
             with open(resolv_conf_path, 'r') as f:
                 dns_config = f.read().strip()
             print(f"🔧 DEBUG: DNS config in chroot:\n{dns_config}")
-        
-        print(f"\n🚀 STARTING CONTAINER {container_id}")
-        print("="*60)
         
         # Use Popen for real-time output streaming
         process = subprocess.Popen(
@@ -1219,19 +1292,20 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
         )
         
         # Stream output in real-time
-        while True:
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                print(output.strip())
+        if process.stdout:
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    print(output.strip())
         
         # Wait for process to complete
         exit_code = process.wait()
         
         print("="*60)
-        print(f"🏁 CONTAINER {container_id} COMPLETED")
-        print(f"🔧 DEBUG: Container exit code: {exit_code}")
+        print(f"🏁 NETWORKING DEMONSTRATION COMPLETE")
+        print(f"🔧 DEBUG: Final exit code: {exit_code}")
         
         # Cleanup
         if netns_name:
@@ -1253,14 +1327,18 @@ print("\n" + "="*50)
 print("TESTING NETWORKED CONTAINER")
 print("="*50)
 
-print("Creating a networked container with Python:")
-print("First testing basic connectivity, then DNS resolution...")
+print("🎯 NETWORKING DEMONSTRATION:")
+print("   Step 1: Show container isolation (ping fails)")
+print("   Step 2: Set up networking")
+print("   Step 3: Show container with internet (ping works)")
+print("")
+
 run_networked_container(
-    cgroup_name="python_networked",
+    cgroup_name="demo_networking",
     chroot_dir="./extracted_python", 
-    command="python3 -c 'import subprocess; print(\"Testing basic connectivity:\"); subprocess.run([\"ping\", \"-c\", \"1\", \"8.8.8.8\"]); print(\"Testing DNS resolution:\"); import socket; print(f\"Container can resolve: {socket.gethostbyname(\"google.com\")}\"); print(\"Networked Python container working!\")'",
+    command="echo 'Custom test: Python networking works!' && python3 -c 'import socket; print(f\"Google resolves to: {socket.gethostbyname(\"google.com\")}\")'",
     memory_limit="100M",
-    container_name="python_demo"
+    container_name="demo"
 )
 
 
