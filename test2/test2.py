@@ -370,19 +370,28 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
     """
     
     print(f"🔧 DEBUG: Running in cgroup {cgroup_name} with chroot {chroot_dir}")
-    print(f"🔧 DEBUG: Full script:\n{script}")
+    print(f"🔧 DEBUG: Memory limit: {memory_limit}")
     
     try:
+        # Use shorter timeout to see the kill faster
         result = subprocess.run(['sh', '-c', script], 
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, timeout=30)
         print(f"🔧 DEBUG: Exit code: {result.returncode}")
+        if result.returncode == 137:
+            print("🎯 DEBUG: Exit code 137 = SIGKILL - Process killed by OOM!")
+        elif result.returncode == 9:
+            print("🎯 DEBUG: Exit code 9 = SIGKILL - Process killed by system!")
+        elif result.returncode != 0:
+            print(f"🔧 DEBUG: Non-zero exit code: {result.returncode}")
+            
         if result.stdout:
             print(f"🔧 DEBUG: stdout:\n{result.stdout}")
         if result.stderr:
             print(f"🔧 DEBUG: stderr:\n{result.stderr}")
         return result
     except subprocess.TimeoutExpired:
-        print("⚠️  DEBUG: Command timed out after 60 seconds")
+        print("⚠️  DEBUG: Command timed out after 30 seconds")
+        print("This might mean the memory limit isn't working properly")
         return None
     except Exception as e:
         print(f"❌ DEBUG: Error running command: {e}")
@@ -396,11 +405,38 @@ def test_memory_allocation(cgroup_name="demo", memory_limit="100M"):
     """
     python_code = '''
 import random
+import sys
+import os
+import time
+
+print(f"🔥 MEMORY ALLOCATION TEST - PID: {os.getpid()}")
+print(f"Attempting to allocate memory until limit is hit...")
+
 data = []
-for i in range(100):
-    # Use random data to prevent optimization
-    data.append(str(random.random()) * 10 * 1024 * 1024)  # 10MB chunks
-    print(f"Allocated {(i+1)*10}MB", flush=True)
+allocated_mb = 0
+
+try:
+    for i in range(200):  # Try to allocate 2GB total
+        # Use random data to prevent optimization
+        chunk = str(random.random()) * 1024 * 1024  # 1MB chunks
+        data.append(chunk)
+        allocated_mb += 1
+        
+        print(f"✅ Allocated {allocated_mb}MB", flush=True)
+        
+        # Add small delay to see progress
+        time.sleep(0.1)
+        
+        # Check memory usage occasionally
+        if allocated_mb % 10 == 0:
+            print(f"🔥 {allocated_mb}MB allocated - still running!", flush=True)
+            
+except MemoryError:
+    print(f"❌ MemoryError at {allocated_mb}MB - Python ran out of memory")
+except Exception as e:
+    print(f"❌ Error at {allocated_mb}MB: {e}")
+    
+print(f"🎯 Memory test completed. Total allocated: {allocated_mb}MB")
 '''
     
     return run_in_cgroup_chroot(
@@ -415,14 +451,14 @@ for i in range(100):
 print("Testing chroot Python version:")
 test_chroot_python()
 
-# %% Test memory allocation with 100M limit - should crash
+# %% Test memory allocation with 1MB limit - should crash immediately
 print("\n" + "="*60)
-print("🧪 Testing memory allocation with 100M limit (should crash):")
+print("🧪 Testing memory allocation with 1MB limit (should crash immediately):")
 print("="*60)
-test_memory_allocation(cgroup_name="demo", memory_limit="1000000")
+test_memory_allocation(cgroup_name="demo", memory_limit="1048576")  # 1MB in bytes
 
-# %% Test with 1GB limit - should work longer
+# %% Test with 10MB limit - should crash after a few allocations
 print("\n" + "="*60)
-print("🧪 Testing memory allocation with 1GB limit:")
+print("🧪 Testing memory allocation with 10MB limit:")
 print("="*60)
-test_memory_allocation(cgroup_name="demo2", memory_limit="1000M")
+test_memory_allocation(cgroup_name="demo2", memory_limit="10485760")  # 10MB in bytes
