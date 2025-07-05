@@ -674,21 +674,7 @@ print("\n" + "="*50)
 print("TESTING NAMESPACE ISOLATION")
 print("="*50)
 
-print("\n1. Testing PID namespace isolation:")
-test_pid_namespace()
-
-print("\n2. Testing network namespace isolation:")
-test_network_namespace()
-
-print("\n3. Testing UTS namespace isolation:")
-test_uts_namespace()
-
-print("\n4. Testing all namespaces together:")
-test_all_namespaces()
-
-print("\n5. Testing namespace failure scenarios:")
-test_network_namespace_failure()
-test_mount_namespace_failure()
+test_namespace_isolation()
 
 # %% Test memory allocation with reasonable limits
 print("\n" + "="*50)
