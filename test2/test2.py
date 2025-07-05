@@ -1126,6 +1126,7 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
     import os
     import uuid
     import signal
+    import time
     
     # Create cgroup
     create_cgroup(cgroup_name, memory_limit=memory_limit)
@@ -1181,75 +1182,63 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
         print(f"⚠ Bridge network not ready, container will run with isolated network")
     
     try:
-        # Fork to create child process
-        pid = os.fork()
-        
-        if pid == 0:
-            # Child process - set up signal handler and wait
-            def resume_handler(signum, frame):
-                pass
-            
-            signal.signal(signal.SIGUSR1, resume_handler)
-            print(f"🔧 DEBUG: Child process {os.getpid()} waiting for setup...")
-            signal.pause()  # Wait for SIGUSR1 from parent
-            print(f"🔧 DEBUG: Child process {os.getpid()} starting container...")
-            
-            # Build execution command
-            if netns_name:
-                # Execute with dedicated network namespace
-                exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
-                           '--pid', '--mount', '--uts', '--ipc', '--fork', 
-                           'chroot', chroot_dir] + command
-                print(f"🔧 DEBUG: Executing with network namespace: {exec_args}")
-            else:
-                # Execute with isolated network namespace (no internet)
-                exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
-                           '--fork', 'chroot', chroot_dir] + command
-                print(f"🔧 DEBUG: Executing with isolated network: {exec_args}")
-            
-            # Add some debugging before execvp
-            print(f"🔧 DEBUG: About to exec: {exec_args[0]} with args: {exec_args}")
-            print(f"🔧 DEBUG: Current working directory: {os.getcwd()}")
-            print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
-            print(f"🔧 DEBUG: Chroot /etc/resolv.conf exists: {os.path.exists(os.path.join(chroot_dir, 'etc', 'resolv.conf'))}")
-            
-            # Show DNS configuration in chroot
-            resolv_conf_path = os.path.join(chroot_dir, 'etc', 'resolv.conf')
-            if os.path.exists(resolv_conf_path):
-                with open(resolv_conf_path, 'r') as f:
-                    dns_config = f.read().strip()
-                print(f"🔧 DEBUG: DNS config in chroot: {dns_config}")
-            
-            os.execvp(exec_args[0], exec_args)
-            
+        # Build execution command
+        if netns_name:
+            # Execute with dedicated network namespace
+            exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
+                       '--pid', '--mount', '--uts', '--ipc', '--fork', 
+                       'chroot', chroot_dir] + command
+            print(f"🔧 DEBUG: Executing with network namespace: {netns_name}")
         else:
-            # Parent process - configure container then signal child
-            print(f"🔧 DEBUG: Configuring container {container_id} (PID: {pid})")
-            
-            # Add to cgroup
-            cgroup_procs_path = f"/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
-            with open(cgroup_procs_path, "w") as f:
-                f.write(str(pid))
-            print(f"✓ Added to cgroup: {cgroup_name}")
-            
-            # Signal child to start
-            print(f"🔧 DEBUG: Signaling child process {pid} to start...")
-            os.kill(pid, signal.SIGUSR1)
-            print(f"✓ Container {container_id} started")
-            
-            # Wait for completion
-            print(f"🔧 DEBUG: Waiting for container {container_id} to complete...")
-            _, status = os.waitpid(pid, 0)
-            exit_code = os.WEXITSTATUS(status)
-            
-            print(f"🔧 DEBUG: Container {container_id} completed with exit code: {exit_code}")
-            
-            # Cleanup
-            if netns_name:
-                cleanup_container_network(container_id)
-            
-            return exit_code
-            
+            # Execute with isolated network namespace (no internet)
+            exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
+                       '--fork', 'chroot', chroot_dir] + command
+            print(f"🔧 DEBUG: Executing with isolated network")
+        
+        print(f"🔧 DEBUG: Command: {exec_args}")
+        print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
+        print(f"🔧 DEBUG: DNS config exists: {os.path.exists(os.path.join(chroot_dir, 'etc', 'resolv.conf'))}")
+        
+        # Show DNS configuration
+        resolv_conf_path = os.path.join(chroot_dir, 'etc', 'resolv.conf')
+        if os.path.exists(resolv_conf_path):
+            with open(resolv_conf_path, 'r') as f:
+                dns_config = f.read().strip()
+            print(f"🔧 DEBUG: DNS config in chroot:\n{dns_config}")
+        
+        print(f"\n🚀 STARTING CONTAINER {container_id}")
+        print("="*60)
+        
+        # Use Popen for real-time output streaming
+        process = subprocess.Popen(
+            exec_args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1  # Line buffered
+        )
+        
+        # Stream output in real-time
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                print(output.strip())
+        
+        # Wait for process to complete
+        exit_code = process.wait()
+        
+        print("="*60)
+        print(f"🏁 CONTAINER {container_id} COMPLETED")
+        print(f"🔧 DEBUG: Container exit code: {exit_code}")
+        
+        # Cleanup
+        if netns_name:
+            cleanup_container_network(container_id)
+        
+        return exit_code
+        
     except Exception as e:
         print(f"✗ Error running networked container: {e}")
         import traceback

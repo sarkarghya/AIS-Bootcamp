@@ -17,13 +17,13 @@ Run `python test2.py` to download the layers. You now have python3.12 in extract
 #### in macos
 Build the docker image `docker build . -t mydocker`
 
-Then, run it `docker run --privileged -it mydocker /bin/bash`
+Then, run it `docker run --privileged -it mydocker /bin/sh`
 
 if you are not on macos, you can try skipping the docker part. for compatibility, we will use docker for everything.
 
 #### in linux
 
-simply `chroot extracted_python/ /bin/bash` to get into a terminal inside the image you just downloaded.
+simply `chroot extracted_python/ /bin/sh` to get into a terminal inside the image you just downloaded.
 
 You can see that this is actually different by running `python --version` and seeing that it is 3.12, not the version of python in the docker container that is running this chroot.
 
