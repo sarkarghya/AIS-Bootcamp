@@ -440,31 +440,12 @@ def test_memory_comprehensive(cgroup_name="demo", memory_limit="100M"):
     
     # Run the memory test in chroot
     chroot extracted_python/ /bin/sh << 'EOF'
-    # Set oom_score_adj in chroot as well
-    echo 1000 > /proc/self/oom_score_adj
-    
     python3 -c "
 import os
 import time
 
 print('Starting memory allocation test...')
 print('Process PID:', os.getpid())
-
-# Try to add ourselves to cgroup again inside chroot
-try:
-    with open('/sys/fs/cgroup/{cgroup_name}/cgroup.procs', 'w') as f:
-        f.write(str(os.getpid()))
-    print('Added Python process to cgroup')
-except Exception as e:
-    print('Warning: Could not add Python process to cgroup:', e)
-
-# Set oom_score_adj for Python process
-try:
-    with open('/proc/self/oom_score_adj', 'w') as f:
-        f.write('1000')
-    print('Set oom_score_adj=1000 for Python process')
-except Exception as e:
-    print('Warning: Could not set oom_score_adj:', e)
 
 data = []
 for i in range(200):  # Allocate up to 2GB if not killed
@@ -474,16 +455,6 @@ for i in range(200):  # Allocate up to 2GB if not killed
     
     # Add a small delay to make killing more predictable
     time.sleep(0.01)
-    
-    # Check if we're approaching the limit
-    if allocated_mb % 50 == 0:
-        try:
-            with open('/sys/fs/cgroup/{cgroup_name}/memory.current', 'r') as f:
-                current = int(f.read().strip())
-                current_mb = current // (1024 * 1024)
-                print('Cgroup memory usage: ' + str(current_mb) + 'MB', flush=True)
-        except:
-            pass
 
 print('Test completed - this should not be reached if limits work!')
 "
