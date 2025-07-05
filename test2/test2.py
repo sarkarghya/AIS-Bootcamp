@@ -904,6 +904,30 @@ def create_container_network(container_id, ip_suffix):
                        'default', 'via', '10.0.0.1'], check=True)
         print(f"✓ Added default route via 10.0.0.1")
         
+        # Set up DNS resolution in the namespace
+        print(f"🔧 DEBUG: Setting up DNS resolution...")
+        try:
+            # Copy host DNS configuration to namespace
+            # Create a minimal /etc directory structure in namespace
+            netns_etc_dir = f"/tmp/netns_{short_id}_etc"
+            os.makedirs(netns_etc_dir, exist_ok=True)
+            
+            # Copy resolv.conf to namespace
+            if os.path.exists('/etc/resolv.conf'):
+                subprocess.run(['cp', '/etc/resolv.conf', f'{netns_etc_dir}/resolv.conf'], check=True)
+                print(f"✓ Copied DNS configuration to namespace")
+            else:
+                # Create a basic resolv.conf with Google DNS
+                with open(f'{netns_etc_dir}/resolv.conf', 'w') as f:
+                    f.write('nameserver 8.8.8.8\nnameserver 8.8.4.4\n')
+                print(f"✓ Created DNS configuration with Google DNS")
+                
+            # Store the etc directory path for later use
+            os.environ[f'NETNS_ETC_{short_id}'] = netns_etc_dir
+            
+        except Exception as e:
+            print(f"⚠ Warning: Could not set up DNS: {e}")
+        
         print(f"✓ Successfully created network for container {container_id}")
         print(f"  - Container IP: {container_ip}/24")
         print(f"  - Gateway: 10.0.0.1")
@@ -917,6 +941,31 @@ def create_container_network(container_id, ip_suffix):
             print(f"✓ Gateway connectivity test PASSED")
         else:
             print(f"⚠ Gateway connectivity test FAILED: {test_result.stderr}")
+        
+        # Test internet connectivity with IP address
+        print(f"🔧 DEBUG: Testing internet connectivity (IP)...")
+        internet_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '8.8.8.8'], 
+                                     capture_output=True, text=True)
+        if internet_test.returncode == 0:
+            print(f"✓ Internet connectivity test PASSED (can reach 8.8.8.8)")
+        else:
+            print(f"⚠ Internet connectivity test FAILED: {internet_test.stderr}")
+        
+        # Test DNS resolution from namespace
+        print(f"🔧 DEBUG: Testing DNS resolution...")
+        dns_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'nslookup', 'google.com'], 
+                                capture_output=True, text=True)
+        if dns_test.returncode == 0:
+            print(f"✓ DNS resolution test PASSED")
+        else:
+            print(f"⚠ DNS resolution test FAILED: {dns_test.stderr}")
+            # Try alternative DNS test
+            dig_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'dig', 'google.com'], 
+                                    capture_output=True, text=True)
+            if dig_test.returncode == 0:
+                print(f"✓ DNS resolution test with dig PASSED")
+            else:
+                print(f"⚠ DNS resolution test with dig FAILED: {dig_test.stderr}")
         
         return netns_name
         
@@ -959,7 +1008,7 @@ def cleanup_container_network(container_id):
         # Remove network namespace (this also removes the veth pair)
         print(f"🔧 DEBUG: Removing network namespace {netns_name}...")
         result = subprocess.run(['ip', 'netns', 'del', netns_name], 
-                              capture_output=True, text=True, stderr=subprocess.DEVNULL)
+                              capture_output=True, text=True)
         if result.returncode == 0:
             print(f"✓ Removed namespace: {netns_name}")
         else:
@@ -968,11 +1017,18 @@ def cleanup_container_network(container_id):
         # Remove host veth if it still exists
         print(f"🔧 DEBUG: Removing host interface {veth_host}...")
         result = subprocess.run(['ip', 'link', 'del', veth_host], 
-                              capture_output=True, text=True, stderr=subprocess.DEVNULL)
+                              capture_output=True, text=True)
         if result.returncode == 0:
             print(f"✓ Removed host interface: {veth_host}")
         else:
             print(f"⚠ Host interface {veth_host} may not exist (already cleaned up)")
+        
+        # Clean up DNS configuration if it exists
+        netns_etc_dir = f"/tmp/netns_{short_id}_etc"
+        if os.path.exists(netns_etc_dir):
+            print(f"🔧 DEBUG: Removing DNS configuration directory...")
+            subprocess.run(['rm', '-rf', netns_etc_dir], check=True)
+            print(f"✓ Removed DNS configuration directory")
         
         print(f"✓ Network cleanup completed for container {container_id}")
         
@@ -1087,6 +1143,26 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
     print(f"🔧 DEBUG: Memory limit: {memory_limit}")
     print(f"🔧 DEBUG: IP suffix: {ip_suffix}")
     
+    # Set up DNS for chroot environment
+    print(f"🔧 DEBUG: Setting up DNS in chroot environment...")
+    try:
+        # Ensure /etc directory exists in chroot
+        chroot_etc_dir = os.path.join(chroot_dir, 'etc')
+        os.makedirs(chroot_etc_dir, exist_ok=True)
+        
+        # Copy or create resolv.conf in chroot
+        chroot_resolv_conf = os.path.join(chroot_etc_dir, 'resolv.conf')
+        if os.path.exists('/etc/resolv.conf'):
+            subprocess.run(['cp', '/etc/resolv.conf', chroot_resolv_conf], check=True)
+            print(f"✓ Copied host DNS configuration to chroot")
+        else:
+            # Create basic DNS configuration
+            with open(chroot_resolv_conf, 'w') as f:
+                f.write('nameserver 8.8.8.8\nnameserver 8.8.4.4\n')
+            print(f"✓ Created DNS configuration in chroot")
+    except Exception as e:
+        print(f"⚠ Warning: Could not set up DNS in chroot: {e}")
+    
     # Set up bridge network
     bridge_ready = setup_bridge_network()
     
@@ -1132,6 +1208,14 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
             print(f"🔧 DEBUG: About to exec: {exec_args[0]} with args: {exec_args}")
             print(f"🔧 DEBUG: Current working directory: {os.getcwd()}")
             print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
+            print(f"🔧 DEBUG: Chroot /etc/resolv.conf exists: {os.path.exists(os.path.join(chroot_dir, 'etc', 'resolv.conf'))}")
+            
+            # Show DNS configuration in chroot
+            resolv_conf_path = os.path.join(chroot_dir, 'etc', 'resolv.conf')
+            if os.path.exists(resolv_conf_path):
+                with open(resolv_conf_path, 'r') as f:
+                    dns_config = f.read().strip()
+                print(f"🔧 DEBUG: DNS config in chroot: {dns_config}")
             
             os.execvp(exec_args[0], exec_args)
             
@@ -1214,6 +1298,13 @@ def create_isolated_container(cgroup_name, chroot_dir, command=None, memory_limi
             print(f"🔧 DEBUG: Current working directory: {os.getcwd()}")
             print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
             
+            # Show DNS configuration in chroot
+            resolv_conf_path = os.path.join(chroot_dir, 'etc', 'resolv.conf')
+            if os.path.exists(resolv_conf_path):
+                with open(resolv_conf_path, 'r') as f:
+                    dns_config = f.read().strip()
+                print(f"🔧 DEBUG: DNS config in chroot: {dns_config}")
+            
             os.execvp('unshare', exec_args)
             
         else:
@@ -1252,38 +1343,49 @@ def test_networked_vs_isolated():
     """
     print("\n=== Testing Networked vs Isolated Containers ===")
     
+    # Test commands that verify network connectivity step by step
     network_test_cmd = [
         "echo 'Container network test:'",
         "hostname networked-container", 
+        "echo 'Network interfaces:'",
         "ip addr show | head -10",
-        "ping -c 2 8.8.8.8 || echo 'No internet access'",
+        "echo 'Testing gateway connectivity:'",
+        "ping -c 1 10.0.0.1 || echo 'Gateway unreachable'",
+        "echo 'Testing internet connectivity (IP):'",
+        "ping -c 1 8.8.8.8 || echo 'Internet unreachable'",
+        "echo 'Testing DNS resolution:'",
+        "nslookup google.com || echo 'DNS resolution failed'",
         "echo 'Network test complete'"
     ]
     
     isolation_test_cmd = [
         "echo 'Isolated container test:'",
         "hostname isolated-container",
+        "echo 'Network interfaces:'",
         "ip addr show | head -10 || echo 'No network interfaces'", 
+        "echo 'Testing connectivity (should fail):'",
         "ping -c 1 8.8.8.8 || echo 'No internet access (expected)'",
         "echo 'Isolation test complete'"
     ]
     
     print("\n1. Testing NETWORKED container (with internet):")
-    run_networked_container(
+    result = run_networked_container(
         cgroup_name="networked_test",
         chroot_dir="./extracted_python",
         command="; ".join(network_test_cmd),
         memory_limit="100M",
         container_name="networked"
     )
+    print(f"   → Networked container result: {'SUCCESS' if result == 0 else 'FAILED'}")
     
     print("\n2. Testing ISOLATED container (no internet):")
-    create_isolated_container(
+    result = create_isolated_container(
         cgroup_name="isolated_test", 
         chroot_dir="./extracted_python",
         command="; ".join(isolation_test_cmd),
         memory_limit="100M"
     )
+    print(f"   → Isolated container result: {'SUCCESS' if result == 0 else 'FAILED'}")
     
     print("\n=== Container comparison complete ===")
     return True
@@ -1303,10 +1405,11 @@ print("TESTING NETWORKED CONTAINER")
 print("="*50)
 
 print("Creating a networked container with Python:")
+print("First testing basic connectivity, then DNS resolution...")
 run_networked_container(
     cgroup_name="python_networked",
     chroot_dir="./extracted_python", 
-    command="python3 -c 'import socket; print(f\"Container can resolve: {socket.gethostbyname(\"google.com\")}\"); print(\"Networked Python container working!\")'",
+    command="python3 -c 'import subprocess; print(\"Testing basic connectivity:\"); subprocess.run([\"ping\", \"-c\", \"1\", \"8.8.8.8\"]); print(\"Testing DNS resolution:\"); import socket; print(f\"Container can resolve: {socket.gethostbyname(\"google.com\")}\"); print(\"Networked Python container working!\")'",
     memory_limit="100M",
     container_name="python_demo"
 )
