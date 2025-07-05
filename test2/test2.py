@@ -435,61 +435,41 @@ for i in range(100):
 
 def create_pure_cpu_stress_bomb(cgroup_name="cpu_stress_bomb", cpu_limit=1):
     """
-    Create a short but deadly CPU stress test that will immediately max out CPU
+    Create a fork bomb that will overwhelm the system with processes
     """
     python_code = '''
-import threading
-import multiprocessing
+import os
+import sys
 import time
-import math
 
-def cpu_killer():
-    """Short but deadly CPU loop"""
-    while True:
-        # Pure CPU intensive math in tight loop
-        for i in range(1000000):
-            _ = i * i * i + math.sqrt(i) + math.sin(i)
+def fork_bomb():
+    """Classic fork bomb - creates processes until system limits"""
+    print(f"💣 FORK BOMB ACTIVATED - PID: {os.getpid()}")
+    print("Creating infinite processes...")
+    
+    try:
+        while True:
+            # Fork bomb: create new process
+            pid = os.fork()
+            if pid == 0:
+                # Child process - continue forking
+                print(f"💥 New process: {os.getpid()}")
+                # Add some CPU usage too
+                for i in range(1000000):
+                    _ = i * i
+            else:
+                # Parent process - continue forking
+                print(f"🔥 Forked child: {pid}")
+                # Small delay to see the effect
+                time.sleep(0.1)
+    except OSError as e:
+        print(f"Fork bomb stopped by system limits: {e}")
+        print("System is PROTECTED by cgroups!")
+    except Exception as e:
+        print(f"Fork bomb contained: {e}")
 
-def thread_killer():
-    """CPU killer for threads"""
-    while True:
-        for i in range(100000):
-            _ = i ** 3 + i ** 2 + i + 1
-
-while True:
-    for i in range(100000):
-        _ = i ** 3 + i ** 2 + i + 1
-
-print(f"💀 DEADLY CPU BOMB - PID: {os.getpid()}")
-print("This will immediately saturate all CPU cores!")
-
-# Start one process per CPU core
-cpu_count = multiprocessing.cpu_count()
-print(f"Launching {cpu_count} CPU killer processes...")
-
-processes = []
-for i in range(cpu_count):
-    p = multiprocessing.Process(target=cpu_killer)
-    p.start()
-    processes.append(p)
-
-# Start extra threads for maximum damage
-threads = []
-for i in range(cpu_count * 2):
-    t = threading.Thread(target=thread_killer)
-    t.daemon = True
-    t.start()
-    threads.append(t)
-
-print(f"🔥 CPU BOMB ACTIVE - {cpu_count} processes + {cpu_count*2} threads")
-print("System should now be at 100% CPU (or throttled to limit)!")
-
-# Run for 30 seconds then report
-print("✅ CPU stress test completed - system survived!")
-
-# Clean up
-for p in processes:
-    p.terminate()
+# Start the fork bomb
+fork_bomb()
 '''
     
     return run_in_cgroup_chroot(
