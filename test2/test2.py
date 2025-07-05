@@ -443,39 +443,41 @@ def test_memory_allocation(cgroup_name="demo", memory_limit="100M"):
     This should trigger the memory limit and cause the process to be killed
     """
     python_code = '''
-import random
 import sys
 import os
 import time
 
-print(f"🔥 MEMORY ALLOCATION TEST - PID: {os.getpid()}")
-print(f"Attempting to allocate memory until limit is hit...")
+print(f"🔥 AGGRESSIVE MEMORY ALLOCATION TEST - PID: {os.getpid()}")
+print(f"Attempting to quickly allocate large chunks of memory...")
 
+# Aggressive memory allocation - allocate faster than garbage collection
 data = []
 allocated_mb = 0
 
 try:
-    for i in range(200):  # Try to allocate 2GB total
-        # Use random data to prevent optimization
-        chunk = str(random.random()) * 1024 * 1024  # 1MB chunks
+    # Try to allocate memory very aggressively in large chunks
+    for i in range(1000):  # Try to allocate up to 1GB
+        # Allocate 1MB of data very quickly (no delays)
+        chunk = b"X" * (1024 * 1024)  # Use bytes instead of strings
         data.append(chunk)
         allocated_mb += 1
         
-        print(f"✅ Allocated {allocated_mb}MB", flush=True)
+        # Print every 1MB but don't flush (reduce I/O overhead)  
+        if allocated_mb % 1 == 0:
+            print(f"Allocated {allocated_mb}MB")
         
-        # Add small delay to see progress
-        time.sleep(0.1)
-        
-        # Check memory usage occasionally
-        if allocated_mb % 10 == 0:
-            print(f"🔥 {allocated_mb}MB allocated - still running!", flush=True)
+        # No sleep - allocate as fast as possible to prevent garbage collection
             
-except MemoryError:
-    print(f"❌ MemoryError at {allocated_mb}MB - Python ran out of memory")
+except MemoryError as e:
+    print(f"❌ MemoryError at {allocated_mb}MB: {e}")
 except Exception as e:
     print(f"❌ Error at {allocated_mb}MB: {e}")
     
 print(f"🎯 Memory test completed. Total allocated: {allocated_mb}MB")
+
+# Keep memory allocated (don't let it get garbage collected)
+print(f"Keeping {len(data)} chunks in memory...")
+time.sleep(5)  # Hold memory for 5 seconds
 '''
     
     return run_in_cgroup_chroot(
@@ -490,14 +492,14 @@ print(f"🎯 Memory test completed. Total allocated: {allocated_mb}MB")
 print("Testing chroot Python version:")
 test_chroot_python()
 
-# %% Test memory allocation with 1MB limit - should crash immediately
+# %% Test memory allocation with 512KB limit - should definitely crash
 print("\n" + "="*60)
-print("🧪 Testing memory allocation with 1MB limit (should crash immediately):")
+print("🧪 Testing memory allocation with 512KB limit (should crash immediately):")
 print("="*60)
-test_memory_allocation(cgroup_name="demo", memory_limit="1048576")  # 1MB in bytes
+test_memory_allocation(cgroup_name="demo", memory_limit="524288")  # 512KB in bytes
 
-# %% Test with 10MB limit - should crash after a few allocations
+# %% Test with 2MB limit - should crash after a couple allocations
 print("\n" + "="*60)
-print("🧪 Testing memory allocation with 10MB limit:")
+print("🧪 Testing memory allocation with 2MB limit:")
 print("="*60)
-test_memory_allocation(cgroup_name="demo2", memory_limit="10485760")  # 10MB in bytes
+test_memory_allocation(cgroup_name="demo2", memory_limit="2097152")  # 2MB in bytes
