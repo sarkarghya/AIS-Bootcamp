@@ -339,7 +339,7 @@ def test_memory_simple(cgroup_name="demo", memory_limit="100M"):
 data = []
 for i in range(100):
     data.append('x' * 10 * 1024 * 1024)  # 10MB chunks
-    print(f'Allocated {(i+1)*10}MB', flush=True)
+    print('Allocated ' + str((i+1)*10) + 'MB', flush=True)
 '''
     
     print(f"Testing memory allocation with {memory_limit} limit:")
@@ -400,7 +400,7 @@ data = []
 for i in range(100):
     # Use 'x' string pattern like in the manual test
     data.append('x' * 10 * 1024 * 1024)  # 10MB chunks
-    print(f"Allocated {(i+1)*10}MB", flush=True)
+    print("Allocated " + str((i+1)*10) + "MB", flush=True)
 '''
     
     print(f"Running memory test with {memory_limit} limit in cgroup '{cgroup_name}'")
