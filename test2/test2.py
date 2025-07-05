@@ -1112,71 +1112,151 @@ def test_basic_container():
 
 def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit="100M", container_name="container"):
     """
-    Create a simple networked container following clean shell script approach
+    Create a new container with full networking support
+    This is a separate function that doesn't modify existing container functions
+    
+    Args:
+        cgroup_name: Name of the cgroup to create/use
+        chroot_dir: Directory to chroot into  
+        command: Command to run
+        memory_limit: Memory limit for the cgroup
+        container_name: Name for the container (used in networking)
     """
     import subprocess
     import os
     import uuid
+    import signal
     
     # Create cgroup
     create_cgroup(cgroup_name, memory_limit=memory_limit)
     
     if command is None:
-        command = '/bin/sh'
-    elif isinstance(command, list):
-        command = ' '.join(command)
+        command = ['/bin/sh']
+    elif isinstance(command, str):
+        command = ['/bin/sh', '-c', command]
     
-    # Generate simple UUID for container
-    container_uuid = str(uuid.uuid4())[:8]
-    ip_suffix = hash(container_uuid) % 200 + 50  # IP range 10.0.0.50-249
-    mac_suffix = f"{ip_suffix:02x}"  # Convert IP to hex for MAC
+    # Generate unique container ID
+    container_id = f"{container_name}_{str(uuid.uuid4())[:8]}"
+    ip_suffix = hash(container_id) % 200 + 50  # IP range 10.0.0.50-249
     
-    print(f"Creating networked container: {container_name}_{container_uuid}")
-    print(f"Container IP: 10.0.0.{ip_suffix}/24")
+    print(f"🔧 DEBUG: Creating networked container: {container_id}")
+    print(f"🔧 DEBUG: Command: {command}")
+    print(f"🔧 DEBUG: Memory limit: {memory_limit}")
+    print(f"🔧 DEBUG: IP suffix: {ip_suffix}")
     
-    # Set up DNS in chroot
-    chroot_etc = os.path.join(chroot_dir, 'etc')
-    os.makedirs(chroot_etc, exist_ok=True)
-    with open(os.path.join(chroot_etc, 'resolv.conf'), 'w') as f:
-        f.write('nameserver 8.8.8.8\nnameserver 8.8.4.4\n')
+    # Set up DNS for chroot environment
+    print(f"🔧 DEBUG: Setting up DNS in chroot environment...")
+    try:
+        # Ensure /etc directory exists in chroot
+        chroot_etc_dir = os.path.join(chroot_dir, 'etc')
+        os.makedirs(chroot_etc_dir, exist_ok=True)
+        
+        # Copy or create resolv.conf in chroot
+        chroot_resolv_conf = os.path.join(chroot_etc_dir, 'resolv.conf')
+        
+        # Always create a working DNS configuration for containers
+        # Don't use systemd-resolved (127.0.0.53) as it won't work in network namespaces
+        with open(chroot_resolv_conf, 'w') as f:
+            f.write('# DNS configuration for containerized environment\n')
+            f.write('nameserver 8.8.8.8\n')
+            f.write('nameserver 8.8.4.4\n')
+            f.write('nameserver 1.1.1.1\n')
+            f.write('options timeout:2 attempts:3\n')
+        print(f"✓ Created working DNS configuration in chroot (Google DNS + Cloudflare)")
+    except Exception as e:
+        print(f"⚠ Warning: Could not set up DNS in chroot: {e}")
     
-    # Set up bridge network if needed
-    setup_bridge_network()
+    # Set up bridge network
+    bridge_ready = setup_bridge_network()
     
-    # Network setup script (following your clean approach)
-    network_setup = f"""
-    # Network setup
-    ip link add dev veth0_{container_uuid} type veth peer name veth1_{container_uuid}
-    ip link set dev veth0_{container_uuid} up
-    ip link set veth0_{container_uuid} master bridge0
-    ip netns add netns_{container_uuid}
-    ip link set veth1_{container_uuid} netns netns_{container_uuid}
-    ip netns exec netns_{container_uuid} ip link set dev lo up
-    ip netns exec netns_{container_uuid} ip link set veth1_{container_uuid} address 02:42:ac:11:00:{mac_suffix}
-    ip netns exec netns_{container_uuid} ip addr add 10.0.0.{ip_suffix}/24 dev veth1_{container_uuid}
-    ip netns exec netns_{container_uuid} ip link set dev veth1_{container_uuid} up
-    ip netns exec netns_{container_uuid} ip route add default via 10.0.0.1
-    
-    # Execute command in cgroup v2 and network namespace
-    echo $$ > "/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
-    ip netns exec netns_{container_uuid} \\
-        unshare -fmuip --mount-proc \\
-        chroot "{chroot_dir}" \\
-        /bin/sh -c "/bin/mount -t proc proc /proc 2>/dev/null || true; {command}"
-    
-    # Cleanup
-    ip netns del netns_{container_uuid} 2>/dev/null || true
-    ip link del veth0_{container_uuid} 2>/dev/null || true
-    """
+    # Create container network
+    netns_name = None
+    if bridge_ready:
+        netns_name = create_container_network(container_id, ip_suffix)
+        if netns_name:
+            print(f"✓ Container {container_id} assigned IP: 10.0.0.{ip_suffix}/24")
+        else:
+            print(f"✗ Failed to create network for container {container_id}")
+    else:
+        print(f"⚠ Bridge network not ready, container will run with isolated network")
     
     try:
-        # Execute the network setup and container command
-        result = subprocess.run(['bash', '-c', network_setup], 
-                              capture_output=False, text=True)
-        return result.returncode
+        # Fork to create child process
+        pid = os.fork()
+        
+        if pid == 0:
+            # Child process - set up signal handler and wait
+            def resume_handler(signum, frame):
+                pass
+            
+            signal.signal(signal.SIGUSR1, resume_handler)
+            print(f"🔧 DEBUG: Child process {os.getpid()} waiting for setup...")
+            signal.pause()  # Wait for SIGUSR1 from parent
+            print(f"🔧 DEBUG: Child process {os.getpid()} starting container...")
+            
+            # Build execution command
+            if netns_name:
+                # Execute with dedicated network namespace
+                exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
+                           '--pid', '--mount', '--uts', '--ipc', '--fork', 
+                           'chroot', chroot_dir] + command
+                print(f"🔧 DEBUG: Executing with network namespace: {exec_args}")
+            else:
+                # Execute with isolated network namespace (no internet)
+                exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
+                           '--fork', 'chroot', chroot_dir] + command
+                print(f"🔧 DEBUG: Executing with isolated network: {exec_args}")
+            
+            # Add some debugging before execvp
+            print(f"🔧 DEBUG: About to exec: {exec_args[0]} with args: {exec_args}")
+            print(f"🔧 DEBUG: Current working directory: {os.getcwd()}")
+            print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
+            print(f"🔧 DEBUG: Chroot /etc/resolv.conf exists: {os.path.exists(os.path.join(chroot_dir, 'etc', 'resolv.conf'))}")
+            
+            # Show DNS configuration in chroot
+            resolv_conf_path = os.path.join(chroot_dir, 'etc', 'resolv.conf')
+            if os.path.exists(resolv_conf_path):
+                with open(resolv_conf_path, 'r') as f:
+                    dns_config = f.read().strip()
+                print(f"🔧 DEBUG: DNS config in chroot: {dns_config}")
+            
+            os.execvp(exec_args[0], exec_args)
+            
+        else:
+            # Parent process - configure container then signal child
+            print(f"🔧 DEBUG: Configuring container {container_id} (PID: {pid})")
+            
+            # Add to cgroup
+            cgroup_procs_path = f"/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
+            with open(cgroup_procs_path, "w") as f:
+                f.write(str(pid))
+            print(f"✓ Added to cgroup: {cgroup_name}")
+            
+            # Signal child to start
+            print(f"🔧 DEBUG: Signaling child process {pid} to start...")
+            os.kill(pid, signal.SIGUSR1)
+            print(f"✓ Container {container_id} started")
+            
+            # Wait for completion
+            print(f"🔧 DEBUG: Waiting for container {container_id} to complete...")
+            _, status = os.waitpid(pid, 0)
+            exit_code = os.WEXITSTATUS(status)
+            
+            print(f"🔧 DEBUG: Container {container_id} completed with exit code: {exit_code}")
+            
+            # Cleanup
+            if netns_name:
+                cleanup_container_network(container_id)
+            
+            return exit_code
+            
     except Exception as e:
-        print(f"Error running networked container: {e}")
-        return 1
+        print(f"✗ Error running networked container: {e}")
+        import traceback
+        traceback.print_exc()
+        if netns_name:
+            cleanup_container_network(container_id)
+        return None
 
 
 # %% Execute networking tests
