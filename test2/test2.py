@@ -1183,17 +1183,9 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
     
     try:
         # Build execution command
-        if netns_name:
-            # Execute with dedicated network namespace
-            exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
-                       '--pid', '--mount', '--uts', '--ipc', '--fork', 
-                       'chroot', chroot_dir] + command
-            print(f"🔧 DEBUG: Executing with network namespace: {netns_name}")
-        else:
-            # Execute with isolated network namespace (no internet)
-            exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
-                       '--fork', 'chroot', chroot_dir] + command
-            print(f"🔧 DEBUG: Executing with isolated network")
+        exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
+                    '--fork', 'chroot', chroot_dir] + command
+        print(f"🔧 DEBUG: Executing with isolated network")
         
         print(f"🔧 DEBUG: Command: {exec_args}")
         print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
