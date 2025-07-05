@@ -308,7 +308,7 @@ def test_namespace_isolation():
         "hostname",  # Should show isolated hostname
         "ps aux | wc -l",  # Should show fewer processes
         "ip addr show | grep -c inet",  # Should show different network setup
-        "mount",  # Should show different mount points
+        "mount | wc -l",  # Should show different mount points
     ]
     
     print("\n1. Host system info:")
@@ -321,8 +321,20 @@ def test_namespace_isolation():
             print(f"  {cmd}: Error - {e}")
     
     print("\n2. Namespaced container info:")
-    combined_cmd = " && ".join([f"echo '{cmd}: ' && {cmd}" for cmd in test_commands])
-
+    # Create separate commands that won't fail if one fails
+    namespace_commands = [
+        "hostname container-demo",  # Change hostname to show UTS isolation
+        "echo 'hostname: ' && hostname",
+        "echo 'ps aux count: ' && ps aux | wc -l", 
+        "echo 'inet addresses: ' && (ip addr show | grep -c inet || echo '0')",
+        "echo 'mount points: ' && (mount | wc -l || echo 'mount failed')",
+        "echo 'current PID: ' && echo $$",
+        "echo 'user info: ' && id"
+    ]
+    
+    # Join with semicolons so each command runs independently
+    combined_cmd = "; ".join(namespace_commands)
+    
     run_in_cgroup_chroot_namespaced(
         cgroup_name="test_namespaces",
         chroot_dir="./extracted_python",
@@ -330,7 +342,15 @@ def test_namespace_isolation():
         memory_limit="50M"
     )
     
+    print("\n3. Verification - host hostname should be unchanged:")
+    try:
+        result = subprocess.run(['hostname'], capture_output=True, text=True)
+        print(f"  Host hostname: {result.stdout.strip()}")
+    except Exception as e:
+        print(f"  Could not check host hostname: {e}")
+    
     print("\n=== Namespace isolation test complete ===")
+    return True
 
 # %% Cgroup - set oom_score_adj
 def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
