@@ -347,15 +347,24 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
     
     # Create a shell script that adds the process to cgroup then chroots
     script = f"""
+    set -x  # Enable debug mode
     echo "DEBUG: Shell script PID: $$"
+    
     echo "DEBUG: Adding process to cgroup..."
     echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
+    echo "DEBUG: Process addition exit code: $?"
     
     echo "DEBUG: Verifying process is in cgroup..."
+    echo "DEBUG: Contents of cgroup.procs:"
+    cat /sys/fs/cgroup/{cgroup_name}/cgroup.procs
+    
     if grep -q "$$" /sys/fs/cgroup/{cgroup_name}/cgroup.procs; then
-        echo "DEBUG: Process successfully added to cgroup"
+        echo "DEBUG: ✅ Process successfully added to cgroup"
     else
-        echo "DEBUG: ERROR - Process not in cgroup!"
+        echo "DEBUG: ❌ ERROR - Process not in cgroup!"
+        echo "DEBUG: Current PID: $$"
+        echo "DEBUG: Processes in cgroup:"
+        cat /sys/fs/cgroup/{cgroup_name}/cgroup.procs
         exit 1
     fi
     
@@ -365,8 +374,15 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
     echo "DEBUG: Memory limit info:"
     cat /sys/fs/cgroup/{cgroup_name}/memory.max
     
+    echo "DEBUG: Current memory usage:"
+    cat /sys/fs/cgroup/{cgroup_name}/memory.current 2>/dev/null || echo "memory.current not available"
+    
+    echo "DEBUG: Memory events:"
+    cat /sys/fs/cgroup/{cgroup_name}/memory.events 2>/dev/null || echo "memory.events not available"
+    
     echo "DEBUG: Starting chroot..."
     chroot {chroot_dir} {' '.join(command)}
+    echo "DEBUG: Chroot command exit code: $?"
     """
     
     print(f"🔧 DEBUG: Running in cgroup {cgroup_name} with chroot {chroot_dir}")
@@ -381,6 +397,8 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
             print("🎯 DEBUG: Exit code 137 = SIGKILL - Process killed by OOM!")
         elif result.returncode == 9:
             print("🎯 DEBUG: Exit code 9 = SIGKILL - Process killed by system!")
+        elif result.returncode == 143:
+            print("🎯 DEBUG: Exit code 143 = SIGTERM - Process terminated!")
         elif result.returncode != 0:
             print(f"🔧 DEBUG: Non-zero exit code: {result.returncode}")
             
@@ -391,7 +409,28 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
         return result
     except subprocess.TimeoutExpired:
         print("⚠️  DEBUG: Command timed out after 30 seconds")
-        print("This might mean the memory limit isn't working properly")
+        print("❌ Memory limit is NOT working properly!")
+        
+        # Try to check the cgroup status after timeout
+        try:
+            print("🔧 DEBUG: Checking cgroup status after timeout...")
+            check_result = subprocess.run(['cat', f'/sys/fs/cgroup/{cgroup_name}/cgroup.procs'], 
+                                        capture_output=True, text=True)
+            if check_result.stdout:
+                print(f"🔧 DEBUG: Processes still in cgroup: {check_result.stdout.strip()}")
+            
+            memory_result = subprocess.run(['cat', f'/sys/fs/cgroup/{cgroup_name}/memory.current'], 
+                                         capture_output=True, text=True)
+            if memory_result.stdout:
+                print(f"🔧 DEBUG: Current memory usage: {memory_result.stdout.strip()}")
+                
+            events_result = subprocess.run(['cat', f'/sys/fs/cgroup/{cgroup_name}/memory.events'], 
+                                         capture_output=True, text=True)
+            if events_result.stdout:
+                print(f"🔧 DEBUG: Memory events: {events_result.stdout.strip()}")
+        except Exception as e:
+            print(f"🔧 DEBUG: Could not check cgroup status: {e}")
+        
         return None
     except Exception as e:
         print(f"❌ DEBUG: Error running command: {e}")
