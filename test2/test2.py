@@ -335,23 +335,23 @@ def test_memory_simple(cgroup_name="demo", memory_limit="100M"):
     """
     Simple memory test that matches the user's manual example exactly
     """
-    python_code = '''
-data = []
-for i in range(100):
-    data.append('x' * 10 * 1024 * 1024)  # 10MB chunks
-    print('Allocated ' + str((i+1)*10) + 'MB', flush=True)
-'''
-    
     print(f"Testing memory allocation with {memory_limit} limit:")
     print("(This should show allocations and then get killed)")
     
     # Create cgroup
     create_cgroup(cgroup_name, memory_limit=memory_limit)
     
-    # Run the exact command that worked for the user
+    # Use a here document to avoid quote nesting issues completely
     script = f"""
     echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
-    chroot extracted_python/ /bin/sh -c "python3 -c '{python_code}'"
+    chroot extracted_python/ /bin/sh << 'EOF'
+python3 -c "
+data = []
+for i in range(100):
+    data.append('x' * 10 * 1024 * 1024)
+    print('Allocated ' + str((i+1)*10) + 'MB', flush=True)
+"
+EOF
     """
     
     import subprocess
