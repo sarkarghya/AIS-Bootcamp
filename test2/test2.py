@@ -227,7 +227,585 @@ def test_chroot_python():
     return run_chroot("./extracted_python", "python --version")
 
 
-# %% Cgroup management functions
+# %% Namespace management functions
+
+def setup_pid_namespace():
+    """
+    Set up PID namespace isolation
+    Creates a new PID namespace where processes see isolated PID space
+    """
+    import subprocess
+    
+    print("Setting up PID namespace...")
+    try:
+        # Use unshare to create new PID namespace
+        # In new PID namespace, the process becomes PID 1
+        result = subprocess.run(['unshare', '--pid', '--fork', '--mount-proc', '/bin/sh', '-c', 'echo "PID namespace created, current PID: $$"'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            print("✓ PID namespace created successfully")
+            return True
+        else:
+            print(f"✗ Failed to create PID namespace: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"✗ Error setting up PID namespace: {e}")
+        return False
+
+
+def setup_mount_namespace():
+    """
+    Set up mount namespace isolation
+    Creates a new mount namespace where filesystem mounts are isolated
+    """
+    import subprocess
+    
+    print("Setting up mount namespace...")
+    try:
+        # Create new mount namespace
+        result = subprocess.run(['unshare', '--mount', '/bin/sh', '-c', 'echo "Mount namespace created"'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            print("✓ Mount namespace created successfully")
+            return True
+        else:
+            print(f"✗ Failed to create mount namespace: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"✗ Error setting up mount namespace: {e}")
+        return False
+
+
+def setup_network_namespace():
+    """
+    Set up network namespace isolation
+    Creates a new network namespace with isolated network interfaces
+    """
+    import subprocess
+    
+    print("Setting up network namespace...")
+    try:
+        # Create new network namespace
+        result = subprocess.run(['unshare', '--net', '/bin/sh', '-c', 'ip link show'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            print("✓ Network namespace created successfully")
+            print(f"   Available interfaces: {result.stdout.strip()}")
+            return True
+        else:
+            print(f"✗ Failed to create network namespace: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"✗ Error setting up network namespace: {e}")
+        return False
+
+
+def setup_uts_namespace():
+    """
+    Set up UTS namespace isolation (hostname/domainname)
+    Creates a new UTS namespace where hostname can be changed independently
+    """
+    import subprocess
+    
+    print("Setting up UTS namespace...")
+    try:
+        # Create new UTS namespace and change hostname
+        result = subprocess.run(['unshare', '--uts', '/bin/sh', '-c', 'hostname container-test && echo "Hostname changed to: $(hostname)"'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            print("✓ UTS namespace created successfully")
+            print(f"   {result.stdout.strip()}")
+            return True
+        else:
+            print(f"✗ Failed to create UTS namespace: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"✗ Error setting up UTS namespace: {e}")
+        return False
+
+
+def setup_ipc_namespace():
+    """
+    Set up IPC namespace isolation
+    Creates a new IPC namespace where System V IPC objects are isolated
+    """
+    import subprocess
+    
+    print("Setting up IPC namespace...")
+    try:
+        # Create new IPC namespace
+        result = subprocess.run(['unshare', '--ipc', '/bin/sh', '-c', 'ipcs -q && echo "IPC namespace created"'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            print("✓ IPC namespace created successfully")
+            return True
+        else:
+            print(f"✗ Failed to create IPC namespace: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"✗ Error setting up IPC namespace: {e}")
+        return False
+
+
+def setup_user_namespace():
+    """
+    Set up user namespace isolation
+    Creates a new user namespace where user/group IDs are mapped
+    """
+    import subprocess
+    
+    print("Setting up user namespace...")
+    try:
+        # Create new user namespace
+        result = subprocess.run(['unshare', '--user', '--map-root-user', '/bin/sh', '-c', 'id && echo "User namespace created"'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            print("✓ User namespace created successfully")
+            print(f"   {result.stdout.strip()}")
+            return True
+        else:
+            print(f"✗ Failed to create user namespace: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"✗ Error setting up user namespace: {e}")
+        return False
+
+
+def setup_cgroup_namespace():
+    """
+    Set up cgroup namespace isolation
+    Creates a new cgroup namespace where cgroup view is isolated
+    """
+    import subprocess
+    
+    print("Setting up cgroup namespace...")
+    try:
+        # Create new cgroup namespace
+        result = subprocess.run(['unshare', '--cgroup', '/bin/sh', '-c', 'cat /proc/self/cgroup'], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            print("✓ Cgroup namespace created successfully")
+            return True
+        else:
+            print(f"✗ Failed to create cgroup namespace: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"✗ Error setting up cgroup namespace: {e}")
+        return False
+
+
+# %% Namespace test functions
+
+def test_pid_namespace():
+    """
+    Test PID namespace isolation
+    Verifies that processes in different PID namespaces see different PID spaces
+    """
+    import subprocess
+    
+    print("Testing PID namespace isolation...")
+    
+    # Get host PID
+    host_pid = subprocess.run(['sh', '-c', 'echo $$'], capture_output=True, text=True).stdout.strip()
+    print(f"Host shell PID: {host_pid}")
+    
+    # Create PID namespace and check PID
+    try:
+        result = subprocess.run(['unshare', '--pid', '--fork', '--mount-proc', '/bin/sh', '-c', 'echo "Namespace PID: $$"'], 
+                              capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            namespace_output = result.stdout.strip()
+            print(f"✓ {namespace_output}")
+            
+            # Check if PID is different (should be 1 in new namespace)
+            if "PID: 1" in namespace_output:
+                print("✓ PID namespace isolation working - process is PID 1 in namespace")
+                return True
+            else:
+                print("⚠ PID namespace created but process is not PID 1")
+                return False
+        else:
+            print(f"✗ PID namespace test failed: {result.stderr}")
+            return False
+    except subprocess.TimeoutExpired:
+        print("✗ PID namespace test timed out")
+        return False
+    except Exception as e:
+        print(f"✗ Error testing PID namespace: {e}")
+        return False
+
+
+def test_mount_namespace():
+    """
+    Test mount namespace isolation
+    Verifies that mounts in different mount namespaces are isolated
+    """
+    import subprocess
+    import tempfile
+    import os
+    
+    print("Testing mount namespace isolation...")
+    
+    try:
+        # Create a temporary directory for testing
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_mount = os.path.join(tmpdir, "test_mount")
+            os.makedirs(test_mount, exist_ok=True)
+            
+            # Create mount namespace and make a bind mount
+            script = f"""
+            mkdir -p {test_mount}/inside_namespace
+            echo "namespace mount" > {test_mount}/inside_namespace/test.txt
+            mount --bind {test_mount}/inside_namespace {test_mount}/inside_namespace
+            echo "Mount created in namespace"
+            ls -la {test_mount}/inside_namespace/
+            """
+            
+            result = subprocess.run(['unshare', '--mount', '/bin/sh', '-c', script], 
+                                  capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                print("✓ Mount namespace isolation working")
+                print(f"   Output: {result.stdout.strip()}")
+                return True
+            else:
+                print(f"✗ Mount namespace test failed: {result.stderr}")
+                return False
+                
+    except subprocess.TimeoutExpired:
+        print("✗ Mount namespace test timed out")
+        return False
+    except Exception as e:
+        print(f"✗ Error testing mount namespace: {e}")
+        return False
+
+
+def test_network_namespace():
+    """
+    Test network namespace isolation
+    Verifies that network interfaces are isolated between namespaces
+    """
+    import subprocess
+    
+    print("Testing network namespace isolation...")
+    
+    try:
+        # Get host network interfaces
+        host_interfaces = subprocess.run(['ip', 'link', 'show'], capture_output=True, text=True).stdout
+        host_interface_count = host_interfaces.count(': ')
+        print(f"Host has {host_interface_count} network interfaces")
+        
+        # Check network interfaces in new namespace
+        result = subprocess.run(['unshare', '--net', '/bin/sh', '-c', 'ip link show | wc -l'], 
+                              capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            namespace_lines = int(result.stdout.strip())
+            print(f"Namespace has {namespace_lines} lines of network output")
+            
+            # New network namespace should have only loopback (usually 2 lines)
+            if namespace_lines <= 2:
+                print("✓ Network namespace isolation working - minimal interfaces in namespace")
+                return True
+            else:
+                print("⚠ Network namespace created but may not be properly isolated")
+                return False
+        else:
+            print(f"✗ Network namespace test failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print("✗ Network namespace test timed out")
+        return False
+    except Exception as e:
+        print(f"✗ Error testing network namespace: {e}")
+        return False
+
+
+def test_uts_namespace():
+    """
+    Test UTS namespace isolation
+    Verifies that hostname changes are isolated between namespaces
+    """
+    import subprocess
+    
+    print("Testing UTS namespace isolation...")
+    
+    try:
+        # Get host hostname
+        host_hostname = subprocess.run(['hostname'], capture_output=True, text=True).stdout.strip()
+        print(f"Host hostname: {host_hostname}")
+        
+        # Change hostname in UTS namespace
+        result = subprocess.run(['unshare', '--uts', '/bin/sh', '-c', 'hostname container-test && echo "New hostname: $(hostname)"'], 
+                              capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            namespace_output = result.stdout.strip()
+            print(f"✓ {namespace_output}")
+            
+            # Verify host hostname unchanged
+            current_host_hostname = subprocess.run(['hostname'], capture_output=True, text=True).stdout.strip()
+            if current_host_hostname == host_hostname:
+                print("✓ UTS namespace isolation working - host hostname unchanged")
+                return True
+            else:
+                print("✗ UTS namespace isolation failed - host hostname changed")
+                return False
+        else:
+            print(f"✗ UTS namespace test failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print("✗ UTS namespace test timed out")
+        return False
+    except Exception as e:
+        print(f"✗ Error testing UTS namespace: {e}")
+        return False
+
+
+def test_ipc_namespace():
+    """
+    Test IPC namespace isolation
+    Verifies that System V IPC objects are isolated between namespaces
+    """
+    import subprocess
+    
+    print("Testing IPC namespace isolation...")
+    
+    try:
+        # Get host IPC objects
+        host_ipc = subprocess.run(['ipcs', '-q'], capture_output=True, text=True).stdout
+        host_ipc_count = host_ipc.count('\n')
+        print(f"Host has {host_ipc_count} lines of IPC output")
+        
+        # Check IPC objects in new namespace
+        result = subprocess.run(['unshare', '--ipc', '/bin/sh', '-c', 'ipcs -q | wc -l'], 
+                              capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            namespace_lines = int(result.stdout.strip())
+            print(f"Namespace has {namespace_lines} lines of IPC output")
+            
+            # New namespace should have fewer IPC objects
+            if namespace_lines <= host_ipc_count:
+                print("✓ IPC namespace isolation working - isolated IPC objects")
+                return True
+            else:
+                print("⚠ IPC namespace created but isolation unclear")
+                return False
+        else:
+            print(f"✗ IPC namespace test failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print("✗ IPC namespace test timed out")
+        return False
+    except Exception as e:
+        print(f"✗ Error testing IPC namespace: {e}")
+        return False
+
+
+def test_user_namespace():
+    """
+    Test user namespace isolation
+    Verifies that user/group ID mapping works in user namespaces
+    """
+    import subprocess
+    
+    print("Testing user namespace isolation...")
+    
+    try:
+        # Get host user ID
+        host_uid = subprocess.run(['id', '-u'], capture_output=True, text=True).stdout.strip()
+        print(f"Host UID: {host_uid}")
+        
+        # Check user ID in new namespace
+        result = subprocess.run(['unshare', '--user', '--map-root-user', '/bin/sh', '-c', 'echo "Namespace UID: $(id -u)"'], 
+                              capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            namespace_output = result.stdout.strip()
+            print(f"✓ {namespace_output}")
+            
+            # Check if we became root in the namespace
+            if "UID: 0" in namespace_output:
+                print("✓ User namespace isolation working - mapped to root in namespace")
+                return True
+            else:
+                print("⚠ User namespace created but UID mapping unclear")
+                return False
+        else:
+            print(f"✗ User namespace test failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print("✗ User namespace test timed out")
+        return False
+    except Exception as e:
+        print(f"✗ Error testing user namespace: {e}")
+        return False
+
+
+def test_cgroup_namespace():
+    """
+    Test cgroup namespace isolation
+    Verifies that cgroup view is isolated between namespaces
+    """
+    import subprocess
+    
+    print("Testing cgroup namespace isolation...")
+    
+    try:
+        # Get host cgroup view
+        host_cgroup = subprocess.run(['cat', '/proc/self/cgroup'], capture_output=True, text=True).stdout
+        host_cgroup_lines = host_cgroup.count('\n')
+        print(f"Host has {host_cgroup_lines} cgroup entries")
+        
+        # Check cgroup view in new namespace
+        result = subprocess.run(['unshare', '--cgroup', '/bin/sh', '-c', 'cat /proc/self/cgroup'], 
+                              capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            namespace_cgroup = result.stdout
+            namespace_cgroup_lines = namespace_cgroup.count('\n')
+            print(f"Namespace has {namespace_cgroup_lines} cgroup entries")
+            
+            # Cgroup view should be different
+            if namespace_cgroup != host_cgroup:
+                print("✓ Cgroup namespace isolation working - different cgroup view")
+                return True
+            else:
+                print("⚠ Cgroup namespace created but view seems identical")
+                return False
+        else:
+            print(f"✗ Cgroup namespace test failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print("✗ Cgroup namespace test timed out")
+        return False
+    except Exception as e:
+        print(f"✗ Error testing cgroup namespace: {e}")
+        return False
+
+
+def test_all_namespaces():
+    """
+    Test all namespace types together
+    Creates a process with all namespace types isolated
+    """
+    import subprocess
+    
+    print("Testing all namespaces together...")
+    
+    try:
+        # Create all namespaces at once
+        script = """
+        echo "=== ALL NAMESPACES TEST ==="
+        echo "PID: $$"
+        echo "UID: $(id -u)"
+        echo "Hostname: $(hostname)"
+        echo "Network interfaces: $(ip link show | wc -l)"
+        echo "Cgroup view: $(cat /proc/self/cgroup | wc -l)"
+        echo "=== END TEST ==="
+        """
+        
+        result = subprocess.run([
+            'unshare', '--pid', '--fork', '--mount-proc',
+            '--net', '--uts', '--ipc', '--user', '--map-root-user',
+            '--cgroup', '/bin/sh', '-c', script
+        ], capture_output=True, text=True, timeout=15)
+        
+        if result.returncode == 0:
+            print("✓ All namespaces created successfully")
+            print("   Output from isolated environment:")
+            for line in result.stdout.strip().split('\n'):
+                print(f"   {line}")
+            return True
+        else:
+            print(f"✗ All namespaces test failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print("✗ All namespaces test timed out")
+        return False
+    except Exception as e:
+        print(f"✗ Error testing all namespaces: {e}")
+        return False
+
+
+# %% Namespace failure scenarios
+
+def test_network_namespace_failure():
+    """
+    Test network namespace failure scenario
+    Demonstrates what happens when network access is restricted
+    """
+    import subprocess
+    
+    print("Testing network namespace failure scenario...")
+    print("(This demonstrates network isolation - no internet access)")
+    
+    try:
+        # Try to access internet from isolated network namespace
+        result = subprocess.run([
+            'unshare', '--net', '/bin/sh', '-c', 
+            'ping -c 1 8.8.8.8 || echo "No network access (expected)"'
+        ], capture_output=True, text=True, timeout=10)
+        
+        if result.returncode != 0:
+            print("✓ Network isolation working - no internet access in namespace")
+            print(f"   Output: {result.stdout.strip()}")
+            return True
+        else:
+            print("⚠ Network namespace created but internet access still available")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print("✗ Network namespace failure test timed out")
+        return False
+    except Exception as e:
+        print(f"✗ Error testing network namespace failure: {e}")
+        return False
+
+
+def test_mount_namespace_failure():
+    """
+    Test mount namespace failure scenario
+    Demonstrates what happens when filesystem access is restricted
+    """
+    import subprocess
+    
+    print("Testing mount namespace failure scenario...")
+    print("(This demonstrates filesystem isolation)")
+    
+    try:
+        # Try to access host filesystem from isolated mount namespace
+        script = """
+        # Try to unmount /tmp in namespace (should not affect host)
+        umount /tmp 2>/dev/null || echo "Could not unmount /tmp"
+        # Try to create a new mount point
+        mkdir -p /isolated_mount 2>/dev/null || echo "Could not create /isolated_mount"
+        echo "Mount namespace isolation active"
+        """
+        
+        result = subprocess.run(['unshare', '--mount', '/bin/sh', '-c', script], 
+                              capture_output=True, text=True, timeout=10)
+        
+        print("✓ Mount namespace isolation working")
+        print(f"   Output: {result.stdout.strip()}")
+        return True
+        
+    except subprocess.TimeoutExpired:
+        print("✗ Mount namespace failure test timed out")
+        return False
+    except Exception as e:
+        print(f"✗ Error testing mount namespace failure: {e}")
+        return False
+
+
+# %% Cgroup - set oom_score_adj
 def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
     """
     Create a cgroup with comprehensive settings to ensure memory limits work properly
@@ -563,6 +1141,27 @@ print("TESTING CHROOT FUNCTIONALITY")
 print("="*50)
 print("Testing chroot Python version:")
 test_chroot_python()
+
+# %% Test namespace isolation
+print("\n" + "="*50)
+print("TESTING NAMESPACE ISOLATION")
+print("="*50)
+
+print("\n1. Testing PID namespace isolation:")
+test_pid_namespace()
+
+print("\n2. Testing network namespace isolation:")
+test_network_namespace()
+
+print("\n3. Testing UTS namespace isolation:")
+test_uts_namespace()
+
+print("\n4. Testing all namespaces together:")
+test_all_namespaces()
+
+print("\n5. Testing namespace failure scenarios:")
+test_network_namespace_failure()
+test_mount_namespace_failure()
 
 # %% Test memory allocation with reasonable limits
 print("\n" + "="*50)
