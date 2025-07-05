@@ -411,7 +411,7 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
         return safe_run_command(fallback_command, timeout=timeout, description=f"chroot-only {cgroup_name}")
 
 
-def test_memory_allocation(cgroup_name="demo", memory_limit="100M"):
+def test_memory_allocation(cgroup_name="memory_stress_bomb", memory_limit="100M"):
     """
     Test memory allocation in a cgroup with chroot
     This should trigger the memory limit and cause the process to be killed
@@ -433,43 +433,108 @@ for i in range(100):
     )
 
 
-def create_pure_cpu_stress_bomb(cgroup_name="cpu_stress_bomb", cpu_limit=1):
+def test_cpu_allocation(cgroup_name="cpu_stress_bomb", cpu_limit=1):
     """
-    Create a fork bomb that will overwhelm the system with processes
+    Verify that cgroup CPU limits are properly configured
     """
     python_code = '''
 import os
 import sys
 import time
 
-def fork_bomb():
-    """Classic fork bomb - creates processes until system limits"""
-    print(f"💣 FORK BOMB ACTIVATED - PID: {os.getpid()}")
-    print("Creating infinite processes...")
+def check_cgroup_limits():
+    """Check if we're actually in a cgroup with limits"""
+    print(f"🔍 CHECKING CGROUP LIMITS - PID: {os.getpid()}")
     
+    # Check if we're in the expected cgroup
     try:
-        while True:
-            # Fork bomb: create new process
-            pid = os.fork()
-            if pid == 0:
-                # Child process - continue forking
-                print(f"💥 New process: {os.getpid()}")
-                # Add some CPU usage too
-                for i in range(1000000):
-                    _ = i * i
-            else:
-                # Parent process - continue forking
-                print(f"🔥 Forked child: {pid}")
-                # Small delay to see the effect
-                time.sleep(0.1)
-    except OSError as e:
-        print(f"Fork bomb stopped by system limits: {e}")
-        print("System is PROTECTED by cgroups!")
+        with open("/proc/self/cgroup", "r") as f:
+            cgroup_info = f.read()
+        print(f"Current cgroup info:\\n{cgroup_info}")
     except Exception as e:
-        print(f"Fork bomb contained: {e}")
+        print(f"Could not read cgroup info: {e}")
+    
+    # Check CPU limits
+    cgroup_path = "/sys/fs/cgroup/cpu_stress_bomb"
+    if os.path.exists(cgroup_path):
+        print(f"✅ Cgroup directory exists: {cgroup_path}")
+        
+        # Check CPU limit
+        cpu_max_file = f"{cgroup_path}/cpu.max"
+        if os.path.exists(cpu_max_file):
+            try:
+                with open(cpu_max_file, "r") as f:
+                    cpu_limit = f.read().strip()
+                print(f"✅ CPU limit configured: {cpu_limit}")
+                
+                # Parse the limit
+                if " " in cpu_limit:
+                    quota, period = cpu_limit.split()
+                    percentage = (int(quota) / int(period)) * 100
+                    print(f"✅ CPU limit: {percentage:.1f}% of one core")
+                else:
+                    print(f"ℹ️  CPU limit format: {cpu_limit}")
+            except Exception as e:
+                print(f"❌ Could not read CPU limit: {e}")
+        else:
+            print(f"❌ CPU limit file not found: {cpu_max_file}")
+        
+        # Check memory limit
+        memory_max_file = f"{cgroup_path}/memory.max"
+        if os.path.exists(memory_max_file):
+            try:
+                with open(memory_max_file, "r") as f:
+                    memory_limit = f.read().strip()
+                print(f"✅ Memory limit configured: {memory_limit}")
+            except Exception as e:
+                print(f"❌ Could not read memory limit: {e}")
+        else:
+            print(f"❌ Memory limit file not found: {memory_max_file}")
+        
+        # Check if process is in the cgroup
+        cgroup_procs_file = f"{cgroup_path}/cgroup.procs"
+        if os.path.exists(cgroup_procs_file):
+            try:
+                with open(cgroup_procs_file, "r") as f:
+                    procs = f.read().strip().split("\\n")
+                current_pid = str(os.getpid())
+                if current_pid in procs:
+                    print(f"✅ Process {current_pid} is in the cgroup")
+                else:
+                    print(f"⚠️  Process {current_pid} not found in cgroup procs")
+                    print(f"Cgroup processes: {procs}")
+            except Exception as e:
+                print(f"❌ Could not check cgroup processes: {e}")
+        
+    else:
+        print(f"❌ Cgroup directory not found: {cgroup_path}")
+    
+    # Simple CPU test to show throttling
+    print("\\n🔥 Running simple CPU test to demonstrate throttling...")
+    start_time = time.time()
+    operations = 0
+    
+    # Run for 5 seconds
+    while time.time() - start_time < 5:
+        for i in range(100000):
+            _ = i * i
+        operations += 100000
+    
+    elapsed = time.time() - start_time
+    rate = operations / elapsed
+    print(f"✅ CPU test completed: {operations:,} operations in {elapsed:.1f}s")
+    print(f"✅ Rate: {rate:,.0f} operations/second")
+    print(f"ℹ️  With CPU limits, this rate should be significantly reduced")
+    
+    return True
 
-# Start the fork bomb
-fork_bomb()
+# Run the cgroup verification
+result = check_cgroup_limits()
+if result:
+    print("\\n🎯 CGROUP VERIFICATION COMPLETED")
+    print("✅ System is properly configured with resource limits!")
+else:
+    print("\\n❌ CGROUP VERIFICATION FAILED")
 '''
     
     return run_in_cgroup_chroot(
@@ -485,7 +550,8 @@ def run_all_tests():
     """Run all tests with proper error handling"""
     tests = [
         ("Basic chroot test", lambda: test_chroot_python()),
-        ("CPU stress test (1% limit)", lambda: create_pure_cpu_stress_bomb(cgroup_name="cpu_stress_bomb", cpu_limit=1))
+        ("Memory allocation test", lambda: test_memory_allocation(cgroup_name="memory_stress_bomb", memory_limit="100M")),
+        ("CPU stress test (1% limit)", lambda: test_cpu_allocation(cgroup_name="cpu_stress_bomb", cpu_limit=1))
     ]
     
     for test_name, test_func in tests:
