@@ -272,13 +272,14 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
         if cpu_limit:
             cpu_max_path = f"{cgroup_path}/cpu.max"
             try:
-                # cpu.max format: "quota period"
-                # For example, 50% of one CPU = "50000 100000" (50ms out of 100ms)
-                quota = int(cpu_limit * 1000)  # Convert percentage to microseconds
-                period = 100000  # 100ms period
+                # CORRECT cpu.max format: "quota period"
+                # For cpu_limit% of one CPU: (cpu_limit * 1000) microseconds per 100,000 microseconds
+                period = 100000  # 100ms period in microseconds
+                quota = int((cpu_limit / 100.0) * period)  # Convert percentage to microseconds
+                
                 with open(cpu_max_path, "w") as f:
                     f.write(f"{quota} {period}")
-                print(f"Set CPU limit to {cpu_limit}% of one core")
+                print(f"Set CPU limit to {cpu_limit}% of one core ({quota}/{period})")
             except Exception as e:
                 print(f"Error setting CPU limit: {e}")
         
@@ -432,6 +433,92 @@ for i in range(100):
     )
 
 
+def create_pure_cpu_stress_bomb(cgroup_name="cpu_stress_bomb", cpu_limit=None):
+    """
+    Create an aggressive CPU-only stress test designed to drain all CPU resources
+    """
+    python_code = '''
+import multiprocessing
+import threading
+import os
+import sys
+import time
+import math
+
+def infinite_cpu_work(worker_id):
+    """Pure CPU-intensive work that never stops"""
+    print(f"CPU Worker {worker_id} starting infinite CPU burn...")
+    counter = 0
+    while True:  # Never-ending CPU loop
+        # Intensive mathematical operations that keep CPU busy
+        for i in range(100000):
+            # Complex calculations to maximize CPU usage
+            result = 0
+            for j in range(1000):
+                result += math.sin(i * j) * math.cos(j) + math.sqrt(abs(i * j))
+                result += i ** 2 + j ** 3 + (i * j) % 997
+            counter += 1
+        
+        # Occasionally print status
+        if counter % 100 == 0:
+            print(f"CPU Worker {worker_id}: {counter * 100000000} operations completed")
+
+def cpu_intensive_thread(thread_id):
+    """CPU-intensive thread work"""
+    while True:
+        # Prime number calculations (CPU intensive)
+        for n in range(2, 100000):
+            is_prime = True
+            for i in range(2, int(n**0.5) + 1):
+                if n % i == 0:
+                    is_prime = False
+                    break
+
+print(f"🔥 PURE CPU STRESS BOMB - PID: {os.getpid()}")
+print("This will max out CPU usage until container crashes!")
+
+# Get number of CPU cores
+cpu_count = multiprocessing.cpu_count()
+print(f"Detected {cpu_count} CPU cores - creating maximum CPU load")
+
+# Create processes for each CPU core (plus extras for saturation)
+processes = []
+for i in range(cpu_count * 3):  # Triple the CPU count for maximum stress
+    p = multiprocessing.Process(target=infinite_cpu_work, args=(i,))
+    p.start()
+    processes.append(p)
+
+# Also create many threads for additional CPU stress
+threads = []
+for i in range(cpu_count * 8):  # Many threads for CPU saturation
+    t = threading.Thread(target=cpu_intensive_thread, args=(f"T{i}"))
+    t.daemon = True
+    t.start()
+    threads.append(t)
+
+print(f"Started {len(processes)} CPU processes and {len(threads)} CPU threads")
+print("Pure CPU stress running until crash...")
+
+# Wait indefinitely (until killed by CPU limits)
+try:
+    for p in processes:
+        p.join()
+except KeyboardInterrupt:
+    print("Interrupted - terminating processes")
+    for p in processes:
+        p.terminate()
+'''
+    
+    return run_in_cgroup_chroot(
+        cgroup_name=cgroup_name,
+        chroot_dir="./extracted_python",
+        command=f"python3 -c '{python_code}'",
+        memory_limit="50M",  # Reasonable memory limit - not a bomb
+        cpu_limit=1
+    )
+
+
+
 def test_cpu_stress(cgroup_name="cpu_demo", cpu_limit=10):
     """
     Test CPU stress that actually shows throttling effects
@@ -507,174 +594,7 @@ else:
         return None
 
 
-def test_cpu_bomb(cgroup_name="cpu_bomb", cpu_limit=5):
-    """
-    Test extreme CPU usage that shows dramatic throttling
-    """
-    python_code = '''
-import time
-import threading
-import os
-import multiprocessing
 
-def cpu_bomb_worker(worker_id):
-    """Extreme CPU work that will be heavily throttled"""
-    print(f"💣 CPU BOMB Worker {worker_id} starting...")
-    start_time = time.time()
-    
-    iterations = 0
-    target_iterations = 100000
-    
-    while iterations < target_iterations:
-        # Extremely CPU intensive operations
-        for i in range(1000):
-            # Multiple expensive operations
-            result = 0
-            for j in range(50):
-                result += i ** 3 + j ** 2 + (i * j) ** 0.5
-            _ = str(result) * 10  # String operations too
-        
-        iterations += 1000
-        
-        # Report progress every 10k iterations
-        if iterations % 10000 == 0:
-            elapsed = time.time() - start_time
-            rate = iterations / elapsed if elapsed > 0 else 0
-            print(f"💣 Worker {worker_id}: {iterations}/{target_iterations} iterations in {elapsed:.1f}s (rate: {rate:.0f}/s)")
-    
-    total_time = time.time() - start_time
-    print(f"💣 Worker {worker_id} FINISHED {target_iterations} iterations in {total_time:.1f}s")
-    return total_time
-
-print(f"💣💣💣 CPU BOMB TEST - PID: {os.getpid()} 💣💣💣")
-print("This will attempt to overwhelm CPU but be throttled!")
-
-# Start multiple CPU bomb workers
-num_workers = 6  # More workers = more pressure
-threads = []
-for i in range(num_workers):
-    t = threading.Thread(target=cpu_bomb_worker, args=(i+1,))
-    t.start()
-    threads.append(t)
-
-print(f"🔥 Started {num_workers} CPU bomb workers")
-
-# Wait for completion
-start_time = time.time()
-for t in threads:
-    t.join()
-
-total_time = time.time() - start_time
-print(f"💥 CPU BOMB COMPLETED in {total_time:.1f} seconds")
-print(f"Expected time without limits: ~15-30 seconds")
-print(f"Actual time with {cpu_limit}% CPU limit: {total_time:.1f} seconds")
-if total_time > 60:
-    print("🎯 EXTREME CPU THROTTLING DEMONSTRATED!")
-else:
-    print("ℹ️  CPU limits may not be fully effective")
-'''
-    
-    try:
-        return run_in_cgroup_chroot(
-            cgroup_name=cgroup_name,
-            chroot_dir="./extracted_python",
-            command=f"python3 -c '{python_code}'",
-            memory_limit="200M",
-            cpu_limit=cpu_limit
-        )
-    except Exception as e:
-        print(f"❌ CPU bomb test failed: {e}")
-        return None
-
-
-def test_ultimate_cpu_destroyer(cgroup_name="cpu_destroyer", cpu_limit=2):
-    """
-    Ultimate CPU destroyer that shows massive throttling effects
-    """
-    python_code = '''
-import time
-import threading
-import os
-import multiprocessing
-
-def ultimate_destroyer_worker(worker_id):
-    """The most CPU-intensive work possible"""
-    print(f"💀 DESTROYER Worker {worker_id} activated...")
-    start_time = time.time()
-    
-    operations = 0
-    target_operations = 50000
-    
-    while operations < target_operations:
-        # Maximum CPU intensity
-        for i in range(100):
-            # Mathematical mayhem
-            result = 0
-            for j in range(100):
-                result += (i + j) ** 4 + (i * j) ** 0.5 + abs(i - j) ** 3
-            
-            # String processing hell
-            s = str(result)
-            for _ in range(10):
-                s = s.upper().lower().replace('0', 'X') * 2
-            
-            # More math chaos
-            for k in range(20):
-                _ = (i + j + k) ** 2 + (i * j * k) ** 0.33
-        
-        operations += 100
-        
-        # Report progress every 5k operations
-        if operations % 5000 == 0:
-            elapsed = time.time() - start_time
-            rate = operations / elapsed if elapsed > 0 else 0
-            print(f"💀 DESTROYER {worker_id}: {operations}/{target_operations} ops in {elapsed:.1f}s (rate: {rate:.1f}/s)")
-    
-    total_time = time.time() - start_time
-    print(f"💀 DESTROYER {worker_id} ANNIHILATED {target_operations} operations in {total_time:.1f}s")
-    return total_time
-
-print(f"💀💀💀 ULTIMATE CPU DESTROYER - PID: {os.getpid()} 💀💀💀")
-print("This will try to completely destroy your CPU!")
-print("Watch as it gets throttled to almost nothing...")
-
-# Maximum destruction
-max_workers = multiprocessing.cpu_count()
-threads = []
-for i in range(max_workers):
-    t = threading.Thread(target=ultimate_destroyer_worker, args=(i+1,))
-    t.start()
-    threads.append(t)
-
-print(f"💀 Launched {max_workers} CPU DESTROYER workers")
-
-# Wait for annihilation
-start_time = time.time()
-for t in threads:
-    t.join()
-
-total_time = time.time() - start_time
-print(f"💀 ULTIMATE DESTRUCTION COMPLETED in {total_time:.1f} seconds")
-print(f"Expected time without limits: ~20-40 seconds")
-print(f"Actual time with {cpu_limit}% CPU limit: {total_time:.1f} seconds")
-if total_time > 120:
-    print("🎯 MASSIVE CPU THROTTLING DEMONSTRATED!")
-    print("Your system is PROTECTED by cgroups!")
-else:
-    print("ℹ️  CPU limits may not be fully effective")
-'''
-    
-    try:
-        return run_in_cgroup_chroot(
-            cgroup_name=cgroup_name,
-            chroot_dir="./extracted_python",
-            command=f"python3 -c '{python_code}'",
-            memory_limit="100M",
-            cpu_limit=cpu_limit
-        )
-    except Exception as e:
-        print(f"❌ CPU destroyer test failed: {e}")
-        return None
 
 
 def run_all_tests():
