@@ -298,47 +298,6 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
         return None
 
 
-def safe_run_command(command, timeout=60, description="command"):
-    """
-    Safely run a command with timeout and error handling
-    
-    Args:
-        command: Command to run (list or string)
-        timeout: Timeout in seconds
-        description: Description for logging
-    
-    Returns:
-        result object or None if failed
-    """
-    import subprocess
-    import signal
-    import os
-    
-    print(f"Running {description} with timeout {timeout}s...")
-    
-    try:
-        if isinstance(command, str):
-            result = subprocess.run(command, shell=True, capture_output=True, 
-                                  text=True, timeout=timeout)
-        else:
-            result = subprocess.run(command, capture_output=True, 
-                                  text=True, timeout=timeout)
-        
-        print(f"Exit code: {result.returncode}")
-        if result.stdout:
-            print(f"stdout:\n{result.stdout}")
-        if result.stderr:
-            print(f"stderr:\n{result.stderr}")
-        return result
-        
-    except subprocess.TimeoutExpired:
-        print(f"⚠️  {description} timed out after {timeout} seconds - killing process")
-        return None
-    except Exception as e:
-        print(f"❌ Error running {description}: {e}")
-        return None
-
-
 def add_process_to_cgroup(cgroup_name, pid=None):
     """
     Add a process to a cgroup
@@ -364,7 +323,7 @@ def add_process_to_cgroup(cgroup_name, pid=None):
         return False
 
 
-def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="100M", cpu_limit=None):
+def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="100M"):
     """
     Run a command in both a cgroup and chroot environment
     
@@ -373,38 +332,44 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
         chroot_dir: Directory to chroot into
         command: Command to run
         memory_limit: Memory limit for the cgroup
-        cpu_limit: CPU limit as percentage
     """
     import subprocess
     import os
     
-    print(f"🚀 Starting {cgroup_name} test...")
-    
-    # Try to create cgroup with both memory and CPU limits
-    cgroup_path = create_cgroup(cgroup_name, memory_limit=memory_limit, cpu_limit=cpu_limit)
+    # Create cgroup
+    create_cgroup(cgroup_name, memory_limit=memory_limit)
     
     if command is None:
         command = ['/bin/sh']
     elif isinstance(command, str):
         command = ['/bin/sh', '-c', command]
     
-    timeout = 20
-    if cgroup_path:
-        # Create a shell script that adds the process to cgroup then chroots
-        script = f"""
-        echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
-        chroot {chroot_dir} {' '.join(command)}
-        """
-        print(f"Running in cgroup {cgroup_name} with chroot {chroot_dir}")
-        return safe_run_command(script, timeout=timeout, description=f"cgroup+chroot {cgroup_name}")
-    else:
-        # Fallback: run without cgroup (just chroot)
-        print(f"⚠️  Running WITHOUT cgroup limits (just chroot) in {chroot_dir}")
-        fallback_command = f"chroot {chroot_dir} {' '.join(command)}"
-        return safe_run_command(fallback_command, timeout=timeout, description=f"chroot-only {cgroup_name}")
+    # Create a shell script that adds the process to cgroup then chroots
+    script = f"""
+    echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
+    chroot {chroot_dir} {' '.join(command)}
+    """
+    
+    print(f"Running in cgroup {cgroup_name} with chroot {chroot_dir}")
+    
+    try:
+        result = subprocess.run(['sh', '-c', script], 
+                              capture_output=True, text=True, timeout=60)
+        print(f"Exit code: {result.returncode}")
+        if result.stdout:
+            print(f"stdout:\n{result.stdout}")
+        if result.stderr:
+            print(f"stderr:\n{result.stderr}")
+        return result
+    except subprocess.TimeoutExpired:
+        print("Command timed out after 60 seconds")
+        return None
+    except Exception as e:
+        print(f"Error running command: {e}")
+        return None
 
 
-def test_memory_allocation(cgroup_name="memory_stress_bomb", memory_limit="100M"):
+def test_memory_allocation(cgroup_name="demo", memory_limit="100M"):
     """
     Test memory allocation in a cgroup with chroot
     This should trigger the memory limit and cause the process to be killed
@@ -426,119 +391,14 @@ for i in range(100):
     )
 
 
-def test_cpu_allocation(cgroup_name="cpu_stress_bomb", cpu_limit=1):
-    """
-    Verify that cgroup CPU limits are properly configured
-    """
-    python_code = '''
-import os
-import sys
-import time
-
-def check_cgroup_limits():
-    """Check if we're actually in a cgroup with limits"""
-    print(f"🔍 CHECKING CGROUP LIMITS - PID: {os.getpid()}")
-    
-    # Check if we're in the expected cgroup
-    try:
-        with open("/proc/self/cgroup", "r") as f:
-            cgroup_info = f.read()
-        print(f"Current cgroup info:\\n{cgroup_info}")
-    except Exception as e:
-        print(f"Could not read cgroup info: {e}")
-    
-    # Check CPU limits
-    cgroup_path = "/sys/fs/cgroup/cpu_stress_bomb"
-    if os.path.exists(cgroup_path):
-        print(f"✅ Cgroup directory exists: {cgroup_path}")
-        
-        # Check CPU limit
-        cpu_max_file = f"{cgroup_path}/cpu.max"
-        if os.path.exists(cpu_max_file):
-            try:
-                with open(cpu_max_file, "r") as f:
-                    cpu_limit = f.read().strip()
-                print(f"✅ CPU limit configured: {cpu_limit}")
-                
-                # Parse the limit
-                if " " in cpu_limit:
-                    quota, period = cpu_limit.split()
-                    percentage = (int(quota) / int(period)) * 100
-                    print(f"✅ CPU limit: {percentage:.1f}% of one core")
-                else:
-                    print(f"ℹ️  CPU limit format: {cpu_limit}")
-            except Exception as e:
-                print(f"❌ Could not read CPU limit: {e}")
-        else:
-            print(f"❌ CPU limit file not found: {cpu_max_file}")
-        
-        # Check memory limit
-        memory_max_file = f"{cgroup_path}/memory.max"
-        if os.path.exists(memory_max_file):
-            try:
-                with open(memory_max_file, "r") as f:
-                    memory_limit = f.read().strip()
-                print(f"✅ Memory limit configured: {memory_limit}")
-            except Exception as e:
-                print(f"❌ Could not read memory limit: {e}")
-        else:
-            print(f"❌ Memory limit file not found: {memory_max_file}")
-        
-        # Check if process is in the cgroup
-        cgroup_procs_file = f"{cgroup_path}/cgroup.procs"
-        if os.path.exists(cgroup_procs_file):
-            try:
-                with open(cgroup_procs_file, "r") as f:
-                    procs = f.read().strip().split("\\n")
-                current_pid = str(os.getpid())
-                if current_pid in procs:
-                    print(f"✅ Process {current_pid} is in the cgroup")
-                else:
-                    print(f"⚠️  Process {current_pid} not found in cgroup procs")
-                    print(f"Cgroup processes: {procs}")
-            except Exception as e:
-                print(f"❌ Could not check cgroup processes: {e}")
-        
-    else:
-        print(f"❌ Cgroup directory not found: {cgroup_path}")
-    
-    # Simple CPU test to show throttling
-    print("\\n🔥 Running simple CPU test to demonstrate throttling...")
-    start_time = time.time()
-    operations = 0
-    
-    # Run for 5 seconds
-    while time.time() - start_time < 5:
-        for i in range(100000):
-            _ = i * i
-        operations += 100000
-    
-    elapsed = time.time() - start_time
-    rate = operations / elapsed
-    print(f"✅ CPU test completed: {operations:,} operations in {elapsed:.1f}s")
-    print(f"✅ Rate: {rate:,.0f} operations/second")
-    print(f"ℹ️  With CPU limits, this rate should be significantly reduced")
-    
-    return True
-
-# Run the cgroup verification
-result = check_cgroup_limits()
-if result:
-    print("\\n🎯 CGROUP VERIFICATION COMPLETED")
-    print("✅ System is properly configured with resource limits!")
-else:
-    print("\\n❌ CGROUP VERIFICATION FAILED")
-'''
-    
-    return run_in_cgroup_chroot(
-        cgroup_name=cgroup_name,
-        chroot_dir="./extracted_python",
-        command=f"python3 -c '{python_code}'",
-        memory_limit="50M",
-        cpu_limit=cpu_limit
-    )
-
-
+# %% Test basic chroot functionality
+print("Testing chroot Python version:")
 test_chroot_python()
-test_memory_allocation(cgroup_name="demo", memory_limit="100M")
-test_cpu_allocation(cgroup_name="cpu_stress_bomb", cpu_limit=1)
+
+# %% Test memory allocation with 100M limit - should crash
+print("Testing memory allocation with 100M limit (should crash):")
+test_memory_allocation(cgroup_name="demo", memory_limit="1000000")
+
+# %% Test with 1GB limit - should work longer
+print("Testing memory allocation with 1GB limit:")
+test_memory_allocation(cgroup_name="demo2", memory_limit="1000M")
