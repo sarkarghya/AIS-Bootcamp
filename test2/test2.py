@@ -447,8 +447,8 @@ import sys
 import os
 import time
 
-print(f"🔥 AGGRESSIVE MEMORY ALLOCATION TEST - PID: {os.getpid()}")
-print(f"Attempting to quickly allocate large chunks of memory...")
+print("🔥 AGGRESSIVE MEMORY ALLOCATION TEST - PID: " + str(os.getpid()))
+print("Attempting to quickly allocate large chunks of memory...")
 
 # Aggressive memory allocation - allocate faster than garbage collection
 data = []
@@ -464,19 +464,19 @@ try:
         
         # Print every 1MB but don't flush (reduce I/O overhead)  
         if allocated_mb % 1 == 0:
-            print(f"Allocated {allocated_mb}MB")
+            print("Allocated " + str(allocated_mb) + "MB")
         
         # No sleep - allocate as fast as possible to prevent garbage collection
             
 except MemoryError as e:
-    print(f"❌ MemoryError at {allocated_mb}MB: {e}")
+    print("❌ MemoryError at " + str(allocated_mb) + "MB: " + str(e))
 except Exception as e:
-    print(f"❌ Error at {allocated_mb}MB: {e}")
+    print("❌ Error at " + str(allocated_mb) + "MB: " + str(e))
     
-print(f"🎯 Memory test completed. Total allocated: {allocated_mb}MB")
+print("🎯 Memory test completed. Total allocated: " + str(allocated_mb) + "MB")
 
 # Keep memory allocated (don't let it get garbage collected)
-print(f"Keeping {len(data)} chunks in memory...")
+print("Keeping " + str(len(data)) + " chunks in memory...")
 time.sleep(5)  # Hold memory for 5 seconds
 '''
     
