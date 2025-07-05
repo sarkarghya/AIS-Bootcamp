@@ -388,14 +388,7 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
     elif isinstance(command, str):
         command = ['/bin/sh', '-c', command]
     
-    # Determine timeout based on CPU limit - lower limits need more time
-    if cpu_limit and cpu_limit <= 5:
-        timeout = 180  # 3 minutes for very low limits
-    elif cpu_limit and cpu_limit <= 10:
-        timeout = 120  # 2 minutes for low limits
-    else:
-        timeout = 60   # 1 minute for higher limits
-    
+    timeout = 20
     if cgroup_path:
         # Create a shell script that adds the process to cgroup then chroots
         script = f"""
@@ -546,37 +539,6 @@ else:
     )
 
 
-def run_all_tests():
-    """Run all tests with proper error handling"""
-    tests = [
-        ("Basic chroot test", lambda: test_chroot_python()),
-        ("Memory allocation test", lambda: test_memory_allocation(cgroup_name="memory_stress_bomb", memory_limit="100M")),
-        ("CPU stress test (1% limit)", lambda: test_cpu_allocation(cgroup_name="cpu_stress_bomb", cpu_limit=1))
-    ]
-    
-    for test_name, test_func in tests:
-        print(f"\n{'='*60}")
-        print(f"🧪 Running: {test_name}")
-        print('='*60)
-        
-        try:
-            result = test_func()
-            if result is not None:
-                print(f"✅ {test_name} completed")
-            else:
-                print(f"⚠️  {test_name} completed with warnings")
-        except Exception as e:
-            print(f"❌ {test_name} failed: {e}")
-            print("Continuing with next test...")
-        
-        print(f"{'='*60}")
-
-
-# %% Test basic chroot functionality
-print("Testing chroot Python version:")
 test_chroot_python()
-
-# %% Run all tests safely
-print("\n🚀 Starting comprehensive container tests...")
-run_all_tests()
-print("\n✅ All tests completed!")
+test_memory_allocation(cgroup_name="demo", memory_limit="100M")
+test_cpu_allocation(cgroup_name="cpu_stress_bomb", cpu_limit=1)
