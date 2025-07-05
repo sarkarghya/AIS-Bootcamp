@@ -433,7 +433,7 @@ for i in range(100):
     )
 
 
-def create_pure_cpu_stress_bomb(cgroup_name="cpu_stress_bomb", cpu_limit=None):
+def create_pure_cpu_stress_bomb(cgroup_name="cpu_stress_bomb", cpu_limit=1):
     """
     Create an aggressive CPU-only stress test designed to drain all CPU resources
     """
@@ -514,7 +514,7 @@ except KeyboardInterrupt:
         chroot_dir="./extracted_python",
         command=f"python3 -c '{python_code}'",
         memory_limit="50M",  # Reasonable memory limit - not a bomb
-        cpu_limit=1
+        cpu_limit=cpu_limit
     )
 
 
@@ -601,9 +601,7 @@ def run_all_tests():
     """Run all tests with proper error handling"""
     tests = [
         ("Basic chroot test", lambda: test_chroot_python()),
-        ("CPU stress test (10% limit)", lambda: test_cpu_stress(cgroup_name="cpu_demo", cpu_limit=10)),
-        ("CPU bomb test (5% limit)", lambda: test_cpu_bomb(cgroup_name="cpu_bomb", cpu_limit=5)),
-        ("ULTIMATE CPU destroyer (2% limit)", lambda: test_ultimate_cpu_destroyer(cgroup_name="cpu_destroyer", cpu_limit=2)),
+        ("CPU stress test (1% limit)", lambda: create_pure_cpu_stress_bomb(cgroup_name="cpu_stress_bomb", cpu_limit=1))
     ]
     
     for test_name, test_func in tests:
