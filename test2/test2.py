@@ -795,10 +795,15 @@ def create_container_network(container_id, ip_suffix):
         return False
     
     try:
-        veth_host = f"veth0_{container_id}"
-        veth_container = f"veth1_{container_id}"
-        netns_name = f"netns_{container_id}"
+        # Shorten names to fit Linux 15-character interface name limit
+        # Use hash to create short unique identifier
+        short_id = str(hash(container_id) % 10000).zfill(4)  # 4-digit ID
+        veth_host = f"veth0_{short_id}"      # e.g., "veth0_1234" (10 chars)
+        veth_container = f"veth1_{short_id}" # e.g., "veth1_1234" (10 chars)
+        netns_name = f"netns_{short_id}"     # namespace name can be longer
         container_ip = f"10.0.0.{ip_suffix}"
+        
+        print(f"  Using short interface names: {veth_host} <-> {veth_container}")
         
         # Create veth pair
         subprocess.run(['ip', 'link', 'add', 'dev', veth_host, 'type', 'veth', 
@@ -851,8 +856,10 @@ def cleanup_container_network(container_id):
         return
     
     try:
-        veth_host = f"veth0_{container_id}"
-        netns_name = f"netns_{container_id}"
+        # Use same naming scheme as create_container_network
+        short_id = str(hash(container_id) % 10000).zfill(4)
+        veth_host = f"veth0_{short_id}"
+        netns_name = f"netns_{short_id}"
         
         # Remove network namespace (this also removes the veth pair)
         subprocess.run(['ip', 'netns', 'del', netns_name], stderr=subprocess.DEVNULL)
