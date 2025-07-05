@@ -264,20 +264,20 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
         except Exception as e:
             print(f"Error setting memory limit: {e}")
         
-    # Set CPU limit if specified
-    if cpu_limit:
-        cpu_max_path = f"{cgroup_path}/cpu.max"
-        try:
-            # CORRECT cpu.max format: "quota period"
-            # For cpu_limit% of one CPU: (cpu_limit * 1000) microseconds per 100,000 microseconds
-            period = 100000  # 100ms period in microseconds
-            quota = int((cpu_limit / 100.0) * period)  # Convert percentage to microseconds
+    # # Set CPU limit if specified
+    # if cpu_limit:
+    #     cpu_max_path = f"{cgroup_path}/cpu.max"
+    #     try:
+    #         # CORRECT cpu.max format: "quota period"
+    #         # For cpu_limit% of one CPU: (cpu_limit * 1000) microseconds per 100,000 microseconds
+    #         period = 100000  # 100ms period in microseconds
+    #         quota = int((cpu_limit / 100.0) * period)  # Convert percentage to microseconds
             
-            with open(cpu_max_path, "w") as f:
-                f.write(f"{quota} {period}")
-            print(f"Set CPU limit to {cpu_limit}% of one core ({quota}/{period})")
-        except Exception as e:
-            print(f"Error setting CPU limit: {e}")
+    #         with open(cpu_max_path, "w") as f:
+    #             f.write(f"{quota} {period}")
+    #         print(f"Set CPU limit to {cpu_limit}% of one core ({quota}/{period})")
+    #     except Exception as e:
+    #         print(f"Error setting CPU limit: {e}")
         
     return cgroup_path
 
