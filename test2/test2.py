@@ -235,67 +235,51 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
     Args:
         cgroup_name: Name of the cgroup (e.g., 'demo')
         memory_limit: Memory limit (e.g., '100M', '1000000')
-        cpu_limit: CPU limit as percentage (e.g., 50 for 50% of one CPU core)
-    
-    Returns:
-        cgroup_path if successful, None if failed
+        cpu_limit: CPU limit (not implemented yet)
     """
     import subprocess
     import os
     
     cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
     
+    # Create cgroup directory
+    os.makedirs(cgroup_path, exist_ok=True)
+    print(f"Created cgroup directory: {cgroup_path}")
+    
+    # Enable controllers in parent cgroup
     try:
-        # Create cgroup directory
-        os.makedirs(cgroup_path, exist_ok=True)
-        print(f"Created cgroup directory: {cgroup_path}")
-        
-        # Enable controllers in parent cgroup
-        try:
-            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
-                f.write("+cpu +memory +pids")
-            print("Enabled cgroup controllers")
-        except Exception as e:
-            print(f"Warning: Could not enable controllers: {e}")
-        
-        # Set memory limit if specified
-        if memory_limit:
-            memory_max_path = f"{cgroup_path}/memory.max"
-            try:
-                with open(memory_max_path, "w") as f:
-                    f.write(str(memory_limit))
-                print(f"Set memory limit to {memory_limit}")
-            except Exception as e:
-                print(f"Error setting memory limit: {e}")
-        
-        # Set CPU limit if specified
-        if cpu_limit:
-            cpu_max_path = f"{cgroup_path}/cpu.max"
-            try:
-                # CORRECT cpu.max format: "quota period"
-                # For cpu_limit% of one CPU: (cpu_limit * 1000) microseconds per 100,000 microseconds
-                period = 100000  # 100ms period in microseconds
-                quota = int((cpu_limit / 100.0) * period)  # Convert percentage to microseconds
-                
-                with open(cpu_max_path, "w") as f:
-                    f.write(f"{quota} {period}")
-                print(f"Set CPU limit to {cpu_limit}% of one core ({quota}/{period})")
-            except Exception as e:
-                print(f"Error setting CPU limit: {e}")
-        
-        return cgroup_path
-        
-    except OSError as e:
-        print(f"ERROR: Cannot create cgroup {cgroup_name}: {e}")
-        print("This is likely because:")
-        print("1. You don't have root privileges")
-        print("2. The cgroup filesystem is read-only")
-        print("3. cgroups v2 is not available")
-        print("Continuing without cgroup limits...")
-        return None
+        with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
+            f.write("+cpu +memory +pids")
+        print("Enabled cgroup controllers")
     except Exception as e:
-        print(f"Unexpected error creating cgroup: {e}")
-        return None
+        print(f"Warning: Could not enable controllers: {e}")
+    
+    # Set memory limit if specified
+    if memory_limit:
+        memory_max_path = f"{cgroup_path}/memory.max"
+        try:
+            with open(memory_max_path, "w") as f:
+                f.write(str(memory_limit))
+            print(f"Set memory limit to {memory_limit}")
+        except Exception as e:
+            print(f"Error setting memory limit: {e}")
+        
+    # Set CPU limit if specified
+    if cpu_limit:
+        cpu_max_path = f"{cgroup_path}/cpu.max"
+        try:
+            # CORRECT cpu.max format: "quota period"
+            # For cpu_limit% of one CPU: (cpu_limit * 1000) microseconds per 100,000 microseconds
+            period = 100000  # 100ms period in microseconds
+            quota = int((cpu_limit / 100.0) * period)  # Convert percentage to microseconds
+            
+            with open(cpu_max_path, "w") as f:
+                f.write(f"{quota} {period}")
+            print(f"Set CPU limit to {cpu_limit}% of one core ({quota}/{period})")
+        except Exception as e:
+            print(f"Error setting CPU limit: {e}")
+        
+    return cgroup_path
 
 
 def add_process_to_cgroup(cgroup_name, pid=None):
