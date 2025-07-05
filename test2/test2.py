@@ -1,30 +1,4 @@
 #!/usr/bin/env python3
-# %% [markdown]
-# # Docker Layer Puller - Downloads and extracts all layers from a Docker image
-#
-# Equivalent bash workflow:
-# 1. Get manifest list:
-#    ```bash
-#    curl -L https://registry-1.docker.io/v2/library/hello-world/manifests/latest > manifest-list.json
-#    ```
-#
-# 2. Find the digest for your architecture:
-#    ```bash
-#    cat manifest-list.json | jq '.manifests[] | select(.platform.architecture=="arm64") | .digest'
-#    ```
-#
-# 3. Get the actual manifest:
-#    ```bash
-#    curl -L -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-#         https://registry-1.docker.io/v2/library/hello-world/manifests/sha256:xxx > manifest.json
-#    ```
-#
-# 4. Extract layer digests and download:
-#    ```bash
-#    cat manifest.json | jq -r '.layers[].digest'
-#    curl -L https://registry-1.docker.io/v2/library/hello-world/blobs/sha256:yyy > layer.tar.gz
-#    tar -xzf layer.tar.gz -C ./extracted
-#    ```
 
 # %% Imports
 import requests
@@ -37,8 +11,14 @@ from io import BytesIO
 
 # %% Architecture selection
 # For macOS on Apple Silicon (M1/M2/M3)
-TARGET_ARCH = "arm64"
-TARGET_VARIANT = "v8"
+import platform
+
+# Automatic architecture detection in 3 lines
+TARGET_ARCH, TARGET_VARIANT = {
+    'x86_64': ('amd64', None), 'amd64': ('amd64', None),
+    'arm64': ('arm64', 'v8'), 'aarch64': ('arm64', 'v8'),
+    'armv7l': ('arm', 'v7'), 'armv6l': ('arm', 'v6')
+}.get(platform.machine().lower(), ('amd64', None))
 
 print(f"Detected architecture: {TARGET_ARCH} {TARGET_VARIANT if TARGET_VARIANT else ''}")
 # For x86/Intel machines, uncomment the following:
