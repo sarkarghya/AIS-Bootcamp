@@ -710,3 +710,470 @@ test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
 
 # print("\n3. Testing memory allocation with 50MB limit (should crash quickly):")
 # test_memory_simple(cgroup_name="demo3", memory_limit="50M")
+
+# %% Container networking functions
+
+def setup_bridge_network():
+    """
+    Set up the bridge network for containers
+    Creates bridge0 with 10.0.0.1/24 and configures iptables
+    """
+    import subprocess
+    import os
+    
+    print("Setting up bridge network...")
+    
+    # Check if running as root
+    if os.geteuid() != 0:
+        print("⚠ Warning: Bridge network setup requires root privileges")
+        return False
+    
+    try:
+        # Enable IP forwarding
+        subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], check=True)
+        print("✓ Enabled IP forwarding")
+        
+        # Remove existing bridge if it exists
+        subprocess.run(['ip', 'link', 'del', 'bridge0'], stderr=subprocess.DEVNULL)
+        
+        # Create and configure bridge
+        subprocess.run(['ip', 'link', 'add', 'bridge0', 'type', 'bridge'], check=True)
+        subprocess.run(['ip', 'addr', 'add', '10.0.0.1/24', 'dev', 'bridge0'], check=True)
+        subprocess.run(['ip', 'link', 'set', 'bridge0', 'up'], check=True)
+        print("✓ Created bridge0 with IP 10.0.0.1/24")
+        
+        # Clear existing iptables rules
+        subprocess.run(['iptables', '-F'])
+        subprocess.run(['iptables', '-t', 'nat', '-F'])
+        subprocess.run(['iptables', '-t', 'mangle', '-F'])
+        subprocess.run(['iptables', '-X'])
+        
+        # Set default policies
+        subprocess.run(['iptables', '-P', 'FORWARD', 'ACCEPT'])
+        subprocess.run(['iptables', '-P', 'INPUT', 'ACCEPT'])
+        subprocess.run(['iptables', '-P', 'OUTPUT', 'ACCEPT'])
+        
+        # Get default network interface
+        default_iface = subprocess.run(['ip', 'route', 'show', 'default'], 
+                                     capture_output=True, text=True).stdout.split()[4]
+        print(f"✓ Detected default interface: {default_iface}")
+        
+        # Add iptables rules for NAT and forwarding
+        subprocess.run(['iptables', '-t', 'nat', '-A', 'POSTROUTING', '-s', '10.0.0.0/24', 
+                       '!', '-o', 'bridge0', '-j', 'MASQUERADE'])
+        subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', default_iface, '-j', 'ACCEPT'])
+        subprocess.run(['iptables', '-A', 'FORWARD', '-i', default_iface, '-o', 'bridge0', 
+                       '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'])
+        subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', 'bridge0', '-j', 'ACCEPT'])
+        print("✓ Configured iptables for NAT and forwarding")
+        
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        print(f"✗ Error setting up bridge network: {e}")
+        return False
+    except Exception as e:
+        print(f"✗ Unexpected error: {e}")
+        return False
+
+
+def create_container_network(container_id, ip_suffix):
+    """
+    Create network interface for a specific container
+    
+    Args:
+        container_id: Unique identifier for the container
+        ip_suffix: IP address suffix (e.g., 2 for 10.0.0.2)
+    """
+    import subprocess
+    import os
+    
+    print(f"Creating network for container {container_id}...")
+    
+    if os.geteuid() != 0:
+        print("⚠ Warning: Network setup requires root privileges")
+        return False
+    
+    try:
+        veth_host = f"veth0_{container_id}"
+        veth_container = f"veth1_{container_id}"
+        netns_name = f"netns_{container_id}"
+        container_ip = f"10.0.0.{ip_suffix}"
+        
+        # Create veth pair
+        subprocess.run(['ip', 'link', 'add', 'dev', veth_host, 'type', 'veth', 
+                       'peer', 'name', veth_container], check=True)
+        
+        # Attach host end to bridge
+        subprocess.run(['ip', 'link', 'set', 'dev', veth_host, 'up'], check=True)
+        subprocess.run(['ip', 'link', 'set', veth_host, 'master', 'bridge0'], check=True)
+        
+        # Create network namespace
+        subprocess.run(['ip', 'netns', 'add', netns_name], check=True)
+        
+        # Move container end to namespace
+        subprocess.run(['ip', 'link', 'set', veth_container, 'netns', netns_name], check=True)
+        
+        # Configure container network interface
+        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 'dev', 'lo', 'up'], check=True)
+        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'add', 
+                       f'{container_ip}/24', 'dev', veth_container], check=True)
+        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 
+                       'dev', veth_container, 'up'], check=True)
+        
+        # Add default route
+        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'route', 'add', 
+                       'default', 'via', '10.0.0.1'], check=True)
+        
+        print(f"✓ Created network interface for container {container_id}")
+        print(f"  - Container IP: {container_ip}/24")
+        print(f"  - Gateway: 10.0.0.1")
+        print(f"  - Network namespace: {netns_name}")
+        
+        return netns_name
+        
+    except subprocess.CalledProcessError as e:
+        print(f"✗ Error creating container network: {e}")
+        return None
+    except Exception as e:
+        print(f"✗ Unexpected error: {e}")
+        return None
+
+
+def cleanup_container_network(container_id):
+    """
+    Clean up network resources for a container
+    """
+    import subprocess
+    import os
+    
+    if os.geteuid() != 0:
+        return
+    
+    try:
+        veth_host = f"veth0_{container_id}"
+        netns_name = f"netns_{container_id}"
+        
+        # Remove network namespace (this also removes the veth pair)
+        subprocess.run(['ip', 'netns', 'del', netns_name], stderr=subprocess.DEVNULL)
+        
+        # Remove host veth if it still exists
+        subprocess.run(['ip', 'link', 'del', veth_host], stderr=subprocess.DEVNULL)
+        
+        print(f"✓ Cleaned up network for container {container_id}")
+        
+    except Exception as e:
+        print(f"⚠ Warning: Could not fully clean up network for {container_id}: {e}")
+
+
+def test_container_networking():
+    """
+    Test creating a container with its own network
+    This demonstrates how to create a container with:
+    - Its own IP address
+    - Internet connectivity through bridge
+    - Network isolation from host
+    """
+    print("\n=== Testing Container Networking ===")
+    
+    # Test container with networking
+    print("\n1. Creating container with network connectivity:")
+    network_test_commands = [
+        "echo 'Container network info:'",
+        "hostname container-network-test",
+        "ip addr show",
+        "echo 'Routing table:'",
+        "ip route show",
+        "echo 'Testing gateway connectivity:'",
+        "ping -c 2 10.0.0.1 || echo 'Gateway unreachable'",
+        "echo 'Testing internet connectivity:'",
+        "ping -c 2 8.8.8.8 || echo 'Internet unreachable'",
+        "echo 'Container network test complete'"
+    ]
+    
+    combined_cmd = "; ".join(network_test_commands)
+    
+    result = run_in_cgroup_chroot_namespaced(
+        cgroup_name="network_test",
+        chroot_dir="./extracted_python",
+        command=combined_cmd,
+        memory_limit="100M"
+    )
+    
+    print(f"\n2. Container network test result: {'SUCCESS' if result == 0 else 'FAILED'}")
+    
+    return True
+
+
+# %% Test basic container with networking
+def test_basic_container():
+    """
+    Test creating a basic container similar to Docker run
+    """
+    print("\n=== Testing Basic Container (like docker run) ===")
+    
+    container_commands = [
+        "echo 'Starting container...'",
+        "hostname my-container",
+        "echo 'Container hostname: ' && hostname",
+        "echo 'Container IP: ' && ip addr show | grep 'inet ' | grep -v '127.0.0.1'",
+        "echo 'Running Python in container:'",
+        "python3 -c 'print(\"Hello from containerized Python!\")'",
+        "echo 'Container complete'"
+    ]
+    
+    combined_cmd = "; ".join(container_commands)
+    
+    print("\n1. Running basic container:")
+    result = run_in_cgroup_chroot_namespaced(
+        cgroup_name="basic_container",
+        chroot_dir="./extracted_python",
+        command=combined_cmd,
+        memory_limit="100M"
+    )
+    
+    print(f"\n2. Basic container result: {'SUCCESS' if result == 0 else 'FAILED'}")
+    
+    return True
+
+
+# %% New separate networking functions (don't modify existing ones)
+
+def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit="100M", container_name="container"):
+    """
+    Create a new container with full networking support
+    This is a separate function that doesn't modify existing container functions
+    
+    Args:
+        cgroup_name: Name of the cgroup to create/use
+        chroot_dir: Directory to chroot into  
+        command: Command to run
+        memory_limit: Memory limit for the cgroup
+        container_name: Name for the container (used in networking)
+    """
+    import subprocess
+    import os
+    import uuid
+    import signal
+    
+    # Create cgroup
+    create_cgroup(cgroup_name, memory_limit=memory_limit)
+    
+    if command is None:
+        command = ['/bin/sh']
+    elif isinstance(command, str):
+        command = ['/bin/sh', '-c', command]
+    
+    # Generate unique container ID
+    container_id = f"{container_name}_{str(uuid.uuid4())[:8]}"
+    ip_suffix = hash(container_id) % 200 + 50  # IP range 10.0.0.50-249
+    
+    print(f"Creating networked container: {container_id}")
+    print(f"Command: {command}")
+    print(f"Memory limit: {memory_limit}")
+    
+    # Set up bridge network
+    bridge_ready = setup_bridge_network()
+    
+    # Create container network
+    netns_name = None
+    if bridge_ready:
+        netns_name = create_container_network(container_id, ip_suffix)
+        if netns_name:
+            print(f"✓ Container {container_id} assigned IP: 10.0.0.{ip_suffix}/24")
+    
+    try:
+        # Fork to create child process
+        pid = os.fork()
+        
+        if pid == 0:
+            # Child process - set up signal handler and wait
+            def resume_handler(signum, frame):
+                pass
+            
+            signal.signal(signal.SIGUSR1, resume_handler)
+            print(f"Child process {os.getpid()} waiting for setup...")
+            signal.pause()  # Wait for SIGUSR1 from parent
+            print(f"Child process {os.getpid()} starting container...")
+            
+            # Build execution command
+            if netns_name:
+                # Execute with dedicated network namespace
+                exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
+                           '--pid', '--mount', '--uts', '--ipc', '--fork', 
+                           'chroot', chroot_dir] + command
+            else:
+                # Execute with isolated network namespace (no internet)
+                exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
+                           '--fork', 'chroot', chroot_dir] + command
+            
+            os.execvp(exec_args[0], exec_args)
+            
+        else:
+            # Parent process - configure container then signal child
+            print(f"Configuring container {container_id} (PID: {pid})")
+            
+            # Add to cgroup
+            cgroup_procs_path = f"/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
+            with open(cgroup_procs_path, "w") as f:
+                f.write(str(pid))
+            print(f"✓ Added to cgroup: {cgroup_name}")
+            
+            # Signal child to start
+            os.kill(pid, signal.SIGUSR1)
+            print(f"✓ Container {container_id} started")
+            
+            # Wait for completion
+            _, status = os.waitpid(pid, 0)
+            exit_code = os.WEXITSTATUS(status)
+            
+            print(f"Container {container_id} exited with code: {exit_code}")
+            
+            # Cleanup
+            if netns_name:
+                cleanup_container_network(container_id)
+            
+            return exit_code
+            
+    except Exception as e:
+        print(f"Error running networked container: {e}")
+        if netns_name:
+            cleanup_container_network(container_id)
+        return None
+
+
+def create_isolated_container(cgroup_name, chroot_dir, command=None, memory_limit="100M"):
+    """
+    Create a container with network isolation (no internet access)
+    This demonstrates containers without networking
+    """
+    import subprocess
+    import os
+    import signal
+    
+    # Create cgroup
+    create_cgroup(cgroup_name, memory_limit=memory_limit)
+    
+    if command is None:
+        command = ['/bin/sh']
+    elif isinstance(command, str):
+        command = ['/bin/sh', '-c', command]
+    
+    print(f"Creating isolated container (no network)")
+    print(f"Command: {command}")
+    print(f"Memory limit: {memory_limit}")
+    
+    try:
+        # Fork to create child process
+        pid = os.fork()
+        
+        if pid == 0:
+            # Child process
+            def resume_handler(signum, frame):
+                pass
+            
+            signal.signal(signal.SIGUSR1, resume_handler)
+            signal.pause()
+            
+            # Execute with full isolation including network
+            os.execvp('unshare', ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
+                                '--fork', 'chroot', chroot_dir] + command)
+            
+        else:
+            # Parent process
+            # Add to cgroup
+            cgroup_procs_path = f"/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
+            with open(cgroup_procs_path, "w") as f:
+                f.write(str(pid))
+            
+            # Signal child to start
+            os.kill(pid, signal.SIGUSR1)
+            
+            # Wait for completion
+            _, status = os.waitpid(pid, 0)
+            exit_code = os.WEXITSTATUS(status)
+            
+            print(f"Isolated container exited with code: {exit_code}")
+            return exit_code
+            
+    except Exception as e:
+        print(f"Error running isolated container: {e}")
+        return None
+
+
+def test_networked_vs_isolated():
+    """
+    Test showing the difference between networked and isolated containers
+    """
+    print("\n=== Testing Networked vs Isolated Containers ===")
+    
+    network_test_cmd = [
+        "echo 'Container network test:'",
+        "hostname networked-container", 
+        "ip addr show | head -10",
+        "ping -c 2 8.8.8.8 || echo 'No internet access'",
+        "echo 'Network test complete'"
+    ]
+    
+    isolation_test_cmd = [
+        "echo 'Isolated container test:'",
+        "hostname isolated-container",
+        "ip addr show | head -10 || echo 'No network interfaces'", 
+        "ping -c 1 8.8.8.8 || echo 'No internet access (expected)'",
+        "echo 'Isolation test complete'"
+    ]
+    
+    print("\n1. Testing NETWORKED container (with internet):")
+    run_networked_container(
+        cgroup_name="networked_test",
+        chroot_dir="./extracted_python",
+        command="; ".join(network_test_cmd),
+        memory_limit="100M",
+        container_name="networked"
+    )
+    
+    print("\n2. Testing ISOLATED container (no internet):")
+    create_isolated_container(
+        cgroup_name="isolated_test", 
+        chroot_dir="./extracted_python",
+        command="; ".join(isolation_test_cmd),
+        memory_limit="100M"
+    )
+    
+    print("\n=== Container comparison complete ===")
+    return True
+
+
+# %% Execute networking tests
+
+# %% Execute networking tests
+print("\n" + "="*50)
+print("TESTING NETWORKED vs ISOLATED CONTAINERS")
+print("="*50)
+
+test_networked_vs_isolated()
+
+print("\n" + "="*50)
+print("TESTING NETWORKED CONTAINER")
+print("="*50)
+
+print("Creating a networked container with Python:")
+run_networked_container(
+    cgroup_name="python_networked",
+    chroot_dir="./extracted_python", 
+    command="python3 -c 'import socket; print(f\"Container can resolve: {socket.gethostbyname(\"google.com\")}\"); print(\"Networked Python container working!\")'",
+    memory_limit="100M",
+    container_name="python_demo"
+)
+
+print("\n" + "="*50)
+print("TESTING ISOLATED CONTAINER")
+print("="*50)
+
+print("Creating an isolated container:")
+create_isolated_container(
+    cgroup_name="python_isolated",
+    chroot_dir="./extracted_python",
+    command="python3 -c 'print(\"Isolated Python container working!\"); import os; print(f\"PID: {os.getpid()}\")'",
+    memory_limit="100M"
+)
