@@ -242,44 +242,55 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
     
     cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
     
-    # Create cgroup directory
-    os.makedirs(cgroup_path, exist_ok=True)
-    print(f"Created cgroup directory: {cgroup_path}")
+    print(f"🔧 DEBUG: Attempting to create cgroup: {cgroup_path}")
     
-    # Enable controllers in parent cgroup
     try:
-        with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
-            f.write("+cpu +memory +pids")
-        print("Enabled cgroup controllers")
-    except Exception as e:
-        print(f"Warning: Could not enable controllers: {e}")
-    
-    # Set memory limit if specified
-    if memory_limit:
-        memory_max_path = f"{cgroup_path}/memory.max"
+        # Create cgroup directory
+        os.makedirs(cgroup_path, exist_ok=True)
+        print(f"✅ DEBUG: Created cgroup directory: {cgroup_path}")
+        
+        # Verify directory exists
+        if os.path.exists(cgroup_path):
+            print(f"✅ DEBUG: Cgroup directory confirmed to exist")
+        else:
+            print(f"❌ DEBUG: Cgroup directory does not exist after creation!")
+            return None
+        
+        # Enable controllers in parent cgroup
         try:
-            with open(memory_max_path, "w") as f:
-                f.write(str(memory_limit))
-            print(f"Set memory limit to {memory_limit}")
+            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
+                f.write("+cpu +memory +pids")
+            print("✅ DEBUG: Enabled cgroup controllers")
         except Exception as e:
-            print(f"Error setting memory limit: {e}")
+            print(f"⚠️  DEBUG: Could not enable controllers: {e}")
         
-    # # Set CPU limit if specified
-    # if cpu_limit:
-    #     cpu_max_path = f"{cgroup_path}/cpu.max"
-    #     try:
-    #         # CORRECT cpu.max format: "quota period"
-    #         # For cpu_limit% of one CPU: (cpu_limit * 1000) microseconds per 100,000 microseconds
-    #         period = 100000  # 100ms period in microseconds
-    #         quota = int((cpu_limit / 100.0) * period)  # Convert percentage to microseconds
-            
-    #         with open(cpu_max_path, "w") as f:
-    #             f.write(f"{quota} {period}")
-    #         print(f"Set CPU limit to {cpu_limit}% of one core ({quota}/{period})")
-    #     except Exception as e:
-    #         print(f"Error setting CPU limit: {e}")
+        # Set memory limit if specified
+        if memory_limit:
+            memory_max_path = f"{cgroup_path}/memory.max"
+            print(f"🔧 DEBUG: Setting memory limit in {memory_max_path}")
+            try:
+                with open(memory_max_path, "w") as f:
+                    f.write(str(memory_limit))
+                print(f"✅ DEBUG: Set memory limit to {memory_limit}")
+                
+                # Verify memory limit was set
+                with open(memory_max_path, "r") as f:
+                    actual_limit = f.read().strip()
+                print(f"✅ DEBUG: Memory limit verified: {actual_limit}")
+            except Exception as e:
+                print(f"❌ DEBUG: Error setting memory limit: {e}")
+                return None
         
-    return cgroup_path
+        return cgroup_path
+        
+    except OSError as e:
+        print(f"❌ DEBUG: OSError creating cgroup: {e}")
+        if e.errno == 30:  # Read-only file system
+            print("❌ DEBUG: /sys/fs/cgroup is read-only!")
+        return None
+    except Exception as e:
+        print(f"❌ DEBUG: Unexpected error creating cgroup: {e}")
+        return None
 
 
 def add_process_to_cgroup(cgroup_name, pid=None):
@@ -320,8 +331,14 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
     import subprocess
     import os
     
+    print(f"🚀 DEBUG: Starting {cgroup_name} test...")
+    
     # Create cgroup
-    create_cgroup(cgroup_name, memory_limit=memory_limit)
+    cgroup_path = create_cgroup(cgroup_name, memory_limit=memory_limit)
+    
+    if not cgroup_path:
+        print("❌ DEBUG: Cgroup creation failed, cannot proceed")
+        return None
     
     if command is None:
         command = ['/bin/sh']
@@ -330,26 +347,45 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
     
     # Create a shell script that adds the process to cgroup then chroots
     script = f"""
+    echo "DEBUG: Shell script PID: $$"
+    echo "DEBUG: Adding process to cgroup..."
     echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
+    
+    echo "DEBUG: Verifying process is in cgroup..."
+    if grep -q "$$" /sys/fs/cgroup/{cgroup_name}/cgroup.procs; then
+        echo "DEBUG: Process successfully added to cgroup"
+    else
+        echo "DEBUG: ERROR - Process not in cgroup!"
+        exit 1
+    fi
+    
+    echo "DEBUG: Current cgroup info:"
+    cat /proc/self/cgroup
+    
+    echo "DEBUG: Memory limit info:"
+    cat /sys/fs/cgroup/{cgroup_name}/memory.max
+    
+    echo "DEBUG: Starting chroot..."
     chroot {chroot_dir} {' '.join(command)}
     """
     
-    print(f"Running in cgroup {cgroup_name} with chroot {chroot_dir}")
+    print(f"🔧 DEBUG: Running in cgroup {cgroup_name} with chroot {chroot_dir}")
+    print(f"🔧 DEBUG: Full script:\n{script}")
     
     try:
         result = subprocess.run(['sh', '-c', script], 
                               capture_output=True, text=True, timeout=60)
-        print(f"Exit code: {result.returncode}")
+        print(f"🔧 DEBUG: Exit code: {result.returncode}")
         if result.stdout:
-            print(f"stdout:\n{result.stdout}")
+            print(f"🔧 DEBUG: stdout:\n{result.stdout}")
         if result.stderr:
-            print(f"stderr:\n{result.stderr}")
+            print(f"🔧 DEBUG: stderr:\n{result.stderr}")
         return result
     except subprocess.TimeoutExpired:
-        print("Command timed out after 60 seconds")
+        print("⚠️  DEBUG: Command timed out after 60 seconds")
         return None
     except Exception as e:
-        print(f"Error running command: {e}")
+        print(f"❌ DEBUG: Error running command: {e}")
         return None
 
 
@@ -380,9 +416,13 @@ print("Testing chroot Python version:")
 test_chroot_python()
 
 # %% Test memory allocation with 100M limit - should crash
-print("Testing memory allocation with 100M limit (should crash):")
+print("\n" + "="*60)
+print("🧪 Testing memory allocation with 100M limit (should crash):")
+print("="*60)
 test_memory_allocation(cgroup_name="demo", memory_limit="1000000")
 
 # %% Test with 1GB limit - should work longer
-print("Testing memory allocation with 1GB limit:")
+print("\n" + "="*60)
+print("🧪 Testing memory allocation with 1GB limit:")
+print("="*60)
 test_memory_allocation(cgroup_name="demo2", memory_limit="1000M")
