@@ -93,8 +93,14 @@ from typing import Optional
 
 # Architecture selection
 # For macOS on Apple Silicon (M1/M2/M3)
-TARGET_ARCH = "arm64"
-TARGET_VARIANT = "v8"
+import platform
+
+# Automatic architecture detection in 3 lines
+TARGET_ARCH, TARGET_VARIANT = {
+    'x86_64': ('amd64', None), 'amd64': ('amd64', None),
+    'arm64': ('arm64', 'v8'), 'aarch64': ('arm64', 'v8'),
+    'armv7l': ('arm', 'v7'), 'armv6l': ('arm', 'v6')
+}.get(platform.machine().lower(), ('amd64', None))
 
 def pull_layers(image_ref: str, output_dir: str, target_arch: str = TARGET_ARCH, target_variant: Optional[str] = TARGET_VARIANT) -> None:
     """
@@ -363,7 +369,7 @@ Implement the `run_chroot` function that executes commands in a chrooted environ
 import subprocess
 import os
 
-def run_chroot(chroot_dir: str, command: Optional[str] = None) -> subprocess.CompletedProcess:
+def run_chroot(chroot_dir: str, command: Optional[str] = None) -> Optional[subprocess.CompletedProcess]:
     """
     Run a command in a chrooted environment.
     
@@ -462,17 +468,16 @@ Cgroups allow you to limit and control resource usage of processes. This is esse
 Implement cgroup management functions for resource control.
 """
 
-def create_cgroup(cgroup_name: str, memory_limit: Optional[str] = None, cpu_limit: Optional[str] = None) -> str:
+def create_memory_cgroup(cgroup_name: str, memory_limit: Optional[str] = None) -> str:
     """
-    Create a cgroup with specified resource limits.
+    Create a cgroup with memory limits.
     
     This function creates a new cgroup in the Linux cgroup filesystem
-    and sets resource limits as specified.
+    and sets memory limits as specified.
     
     Args:
         cgroup_name: Name of the cgroup (e.g., 'demo')
         memory_limit: Memory limit (e.g., '100M', '1000000')
-        cpu_limit: CPU limit (not implemented in this exercise)
     
     Returns:
         Path to the created cgroup directory
@@ -504,7 +509,7 @@ def create_cgroup(cgroup_name: str, memory_limit: Optional[str] = None, cpu_limi
         
         return cgroup_path
     else:
-        # TODO: Implement cgroup creation
+        # TODO: Implement memory cgroup creation
         #   - Create cgroup directory in /sys/fs/cgroup/
         #   - Enable controllers in parent cgroup
         #   - Set memory limit if specified
@@ -514,10 +519,67 @@ def create_cgroup(cgroup_name: str, memory_limit: Optional[str] = None, cpu_limi
         # 2. Write to /sys/fs/cgroup/cgroup.subtree_control to enable controllers
         # 3. Write to {cgroup_path}/memory.max to set memory limit
         # 4. Handle exceptions gracefully
-        pass
+        return ""  # TODO: Return the cgroup path
 
 
-def run_in_cgroup_chroot(cgroup_name: str, chroot_dir: str, command: Optional[str] = None, memory_limit: str = "100M") -> subprocess.CompletedProcess:
+def create_cpu_cgroup(cgroup_name: str, cpu_limit: Optional[str] = None) -> str:
+    """
+    Create a cgroup with CPU limits.
+    
+    This function creates a new cgroup in the Linux cgroup filesystem
+    and sets CPU limits as specified.
+    
+    Args:
+        cgroup_name: Name of the cgroup (e.g., 'demo')
+        cpu_limit: CPU limit (e.g., '100000' for 100ms per 100ms period, '50000' for 50%)
+    
+    Returns:
+        Path to the created cgroup directory
+    """
+    if "SOLUTION":
+        cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
+        
+        # Create cgroup directory
+        os.makedirs(cgroup_path, exist_ok=True)
+        print(f"Created cgroup directory: {cgroup_path}")
+        
+        # Enable controllers in parent cgroup
+        try:
+            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
+                f.write("+cpu +memory +pids")
+            print("Enabled cgroup controllers")
+        except Exception as e:
+            print(f"Warning: Could not enable controllers: {e}")
+        
+        # Set CPU limit if specified
+        if cpu_limit:
+            # Set CPU quota (how much CPU time the cgroup can use)
+            cpu_max_path = f"{cgroup_path}/cpu.max"
+            try:
+                # Format: "quota period" (e.g., "100000 100000" for 100% of one CPU)
+                # cpu_limit should be the quota in microseconds
+                with open(cpu_max_path, "w") as f:
+                    f.write(f"{cpu_limit} 100000")  # 100ms period
+                print(f"Set CPU limit to {cpu_limit} microseconds per 100ms")
+            except Exception as e:
+                print(f"Error setting CPU limit: {e}")
+        
+        return cgroup_path
+    else:
+        # TODO: Implement CPU cgroup creation
+        #   - Create cgroup directory in /sys/fs/cgroup/
+        #   - Enable controllers in parent cgroup
+        #   - Set CPU limit if specified
+        #
+        # Hints:
+        # 1. Use os.makedirs() to create the cgroup directory
+        # 2. Write to /sys/fs/cgroup/cgroup.subtree_control to enable controllers
+        # 3. Write to {cgroup_path}/cpu.max to set CPU limit (format: "quota period")
+        # 4. Handle exceptions gracefully
+        return ""  # TODO: Return the cgroup path
+
+
+def run_in_cgroup_chroot(cgroup_name: str, chroot_dir: str, command: Optional[str] = None, memory_limit: str = "100M") -> Optional[subprocess.CompletedProcess]:
     """
     Run a command in both a cgroup and chroot environment.
     
@@ -535,7 +597,7 @@ def run_in_cgroup_chroot(cgroup_name: str, chroot_dir: str, command: Optional[st
     """
     if "SOLUTION":
         # Create cgroup with memory limit
-        create_cgroup(cgroup_name, memory_limit=memory_limit)
+        create_memory_cgroup(cgroup_name, memory_limit=memory_limit)
         
         if command is None:
             command_list = ['/bin/sh']
@@ -605,12 +667,29 @@ for i in range(100):
     )
     
     # The process should be killed by the OOM killer
-    assert result.returncode != 0, "Process should have been killed by memory limit"
+    assert result is not None and result.returncode != 0, "Process should have been killed by memory limit"
     print("✓ Memory limit test passed - process was killed as expected")
     
     print("✓ Cgroup tests passed!\n" + "=" * 60)
 
 test_cgroup_memory_limit()
+
+# %%
+def test_cpu_cgroup():
+    """Test CPU cgroup creation."""
+    print("Testing CPU cgroup creation...")
+    
+    # Create a CPU cgroup with 50% CPU limit
+    cgroup_path = create_cpu_cgroup("test_cpu_demo", "50000")  # 50% CPU
+    assert cgroup_path == "/sys/fs/cgroup/test_cpu_demo", "CPU cgroup path incorrect"
+    
+    print("✓ CPU cgroup test passed!\n" + "=" * 60)
+
+# Test CPU cgroup (this will only work in a proper Linux environment)
+try:
+    test_cpu_cgroup()
+except Exception as e:
+    print(f"CPU cgroup test skipped (likely not running on Linux): {e}")
 
 # %%
 """
