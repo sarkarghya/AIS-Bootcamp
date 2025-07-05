@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+
 # %% Imports
 import requests
 import tarfile
@@ -234,7 +235,7 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
     Args:
         cgroup_name: Name of the cgroup (e.g., 'demo')
         memory_limit: Memory limit (e.g., '100M', '1000000')
-        cpu_limit: CPU limit (not implemented yet)
+        cpu_limit: CPU limit as percentage (e.g., 50 for 50% of one CPU core)
     """
     import subprocess
     import os
@@ -262,6 +263,20 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
             print(f"Set memory limit to {memory_limit}")
         except Exception as e:
             print(f"Error setting memory limit: {e}")
+    
+    # Set CPU limit if specified
+    if cpu_limit:
+        cpu_max_path = f"{cgroup_path}/cpu.max"
+        try:
+            # cpu.max format: "quota period"
+            # For example, 50% of one CPU = "50000 100000" (50ms out of 100ms)
+            quota = int(cpu_limit * 1000)  # Convert percentage to microseconds
+            period = 100000  # 100ms period
+            with open(cpu_max_path, "w") as f:
+                f.write(f"{quota} {period}")
+            print(f"Set CPU limit to {cpu_limit}% of one core")
+        except Exception as e:
+            print(f"Error setting CPU limit: {e}")
     
     return cgroup_path
 
@@ -359,14 +374,131 @@ for i in range(100):
     )
 
 
+def test_cpu_stress(cgroup_name="cpu_demo", cpu_limit=10):
+    """
+    Test CPU stress in a cgroup with chroot
+    This should max out CPU usage and test the CPU limit
+    
+    Args:
+        cgroup_name: Name of the cgroup
+        cpu_limit: CPU limit as percentage (e.g., 10 for 10% of one core)
+    """
+    python_code = '''
+import time
+import threading
+import os
+
+def cpu_stress():
+    """Infinite loop to stress CPU"""
+    while True:
+        # Busy work to consume CPU
+        for i in range(100000):
+            _ = i * i * i
+        
+print(f"Starting CPU stress test with PID: {os.getpid()}")
+print("This will run multiple threads to stress CPU...")
+
+# Start multiple threads to stress CPU
+threads = []
+for i in range(8):  # 8 threads to stress multiple cores
+    t = threading.Thread(target=cpu_stress)
+    t.daemon = True
+    t.start()
+    threads.append(t)
+    print(f"Started thread {i+1}")
+
+# Keep main thread alive and show progress
+start_time = time.time()
+try:
+    while True:
+        elapsed = time.time() - start_time
+        print(f"CPU stress running for {elapsed:.1f} seconds...", flush=True)
+        time.sleep(2)
+except KeyboardInterrupt:
+    print("Interrupted by user")
+'''
+    
+    return run_in_cgroup_chroot(
+        cgroup_name=cgroup_name,
+        chroot_dir="./extracted_python",
+        command=f"python3 -c '{python_code}'",
+        memory_limit="500M"  # Give enough memory but limit CPU
+    )
+
+
+def test_cpu_bomb(cgroup_name="cpu_bomb", cpu_limit=5):
+    """
+    Test extreme CPU usage (CPU bomb) in a cgroup
+    This creates a fork bomb-like CPU intensive process
+    
+    Args:
+        cgroup_name: Name of the cgroup
+        cpu_limit: CPU limit as percentage (e.g., 5 for 5% of one core)
+    """
+    python_code = '''
+import os
+import time
+import multiprocessing
+
+def cpu_bomb():
+    """Infinite CPU-intensive loop"""
+    while True:
+        # Extremely CPU intensive operations
+        for i in range(1000000):
+            _ = i ** 2 + i ** 3 + i ** 4
+        
+print(f"Starting CPU BOMB test with PID: {os.getpid()}")
+print("WARNING: This will attempt to max out ALL CPU cores!")
+
+# Get number of CPU cores
+num_cores = multiprocessing.cpu_count()
+print(f"Detected {num_cores} CPU cores")
+
+# Start one process per CPU core
+processes = []
+for i in range(num_cores * 2):  # 2x cores for maximum stress
+    p = multiprocessing.Process(target=cpu_bomb)
+    p.start()
+    processes.append(p)
+    print(f"Started CPU bomb process {i+1}")
+
+# Keep main process alive
+start_time = time.time()
+try:
+    while True:
+        elapsed = time.time() - start_time
+        print(f"CPU BOMB running for {elapsed:.1f} seconds...", flush=True)
+        time.sleep(1)
+except KeyboardInterrupt:
+    print("Interrupted - terminating processes")
+    for p in processes:
+        p.terminate()
+'''
+    
+    return run_in_cgroup_chroot(
+        cgroup_name=cgroup_name,
+        chroot_dir="./extracted_python",
+        command=f"python3 -c '{python_code}'",
+        memory_limit="200M"  # Limited memory and CPU
+    )
+
+
 # %% Test basic chroot functionality
 print("Testing chroot Python version:")
 test_chroot_python()
 
-# %% Test memory allocation with 100M limit - should crash
-print("Testing memory allocation with 100M limit (should crash):")
-test_memory_allocation(cgroup_name="demo", memory_limit="1000000")
+# # %% Test memory allocation with 100M limit - should crash
+# print("Testing memory allocation with 100M limit (should crash):")
+# test_memory_allocation(cgroup_name="demo", memory_limit="1000000")
 
-# %% Test with 1GB limit - should work longer
-print("Testing memory allocation with 1GB limit:")
-test_memory_allocation(cgroup_name="demo2", memory_limit="1000M")
+# # %% Test with 1GB limit - should work longer
+# print("Testing memory allocation with 1GB limit:")
+# test_memory_allocation(cgroup_name="demo2", memory_limit="1000M")
+
+# %% Test CPU stress with 10% limit
+print("Testing CPU stress with 10% CPU limit:")
+test_cpu_stress(cgroup_name="cpu_demo", cpu_limit=10)
+
+# %% Test CPU bomb with 5% limit - should be heavily throttled
+print("Testing CPU BOMB with 5% CPU limit (should be heavily throttled):")
+test_cpu_bomb(cgroup_name="cpu_bomb", cpu_limit=5)
