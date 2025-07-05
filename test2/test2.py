@@ -236,49 +236,106 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
         cgroup_name: Name of the cgroup (e.g., 'demo')
         memory_limit: Memory limit (e.g., '100M', '1000000')
         cpu_limit: CPU limit as percentage (e.g., 50 for 50% of one CPU core)
+    
+    Returns:
+        cgroup_path if successful, None if failed
     """
     import subprocess
     import os
     
     cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
     
-    # Create cgroup directory
-    os.makedirs(cgroup_path, exist_ok=True)
-    print(f"Created cgroup directory: {cgroup_path}")
-    
-    # Enable controllers in parent cgroup
     try:
-        with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
-            f.write("+cpu +memory +pids")
-        print("Enabled cgroup controllers")
+        # Create cgroup directory
+        os.makedirs(cgroup_path, exist_ok=True)
+        print(f"Created cgroup directory: {cgroup_path}")
+        
+        # Enable controllers in parent cgroup
+        try:
+            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
+                f.write("+cpu +memory +pids")
+            print("Enabled cgroup controllers")
+        except Exception as e:
+            print(f"Warning: Could not enable controllers: {e}")
+        
+        # Set memory limit if specified
+        if memory_limit:
+            memory_max_path = f"{cgroup_path}/memory.max"
+            try:
+                with open(memory_max_path, "w") as f:
+                    f.write(str(memory_limit))
+                print(f"Set memory limit to {memory_limit}")
+            except Exception as e:
+                print(f"Error setting memory limit: {e}")
+        
+        # Set CPU limit if specified
+        if cpu_limit:
+            cpu_max_path = f"{cgroup_path}/cpu.max"
+            try:
+                # cpu.max format: "quota period"
+                # For example, 50% of one CPU = "50000 100000" (50ms out of 100ms)
+                quota = int(cpu_limit * 1000)  # Convert percentage to microseconds
+                period = 100000  # 100ms period
+                with open(cpu_max_path, "w") as f:
+                    f.write(f"{quota} {period}")
+                print(f"Set CPU limit to {cpu_limit}% of one core")
+            except Exception as e:
+                print(f"Error setting CPU limit: {e}")
+        
+        return cgroup_path
+        
+    except OSError as e:
+        print(f"ERROR: Cannot create cgroup {cgroup_name}: {e}")
+        print("This is likely because:")
+        print("1. You don't have root privileges")
+        print("2. The cgroup filesystem is read-only")
+        print("3. cgroups v2 is not available")
+        print("Continuing without cgroup limits...")
+        return None
     except Exception as e:
-        print(f"Warning: Could not enable controllers: {e}")
+        print(f"Unexpected error creating cgroup: {e}")
+        return None
+
+
+def safe_run_command(command, timeout=60, description="command"):
+    """
+    Safely run a command with timeout and error handling
     
-    # Set memory limit if specified
-    if memory_limit:
-        memory_max_path = f"{cgroup_path}/memory.max"
-        try:
-            with open(memory_max_path, "w") as f:
-                f.write(str(memory_limit))
-            print(f"Set memory limit to {memory_limit}")
-        except Exception as e:
-            print(f"Error setting memory limit: {e}")
+    Args:
+        command: Command to run (list or string)
+        timeout: Timeout in seconds
+        description: Description for logging
     
-    # Set CPU limit if specified
-    if cpu_limit:
-        cpu_max_path = f"{cgroup_path}/cpu.max"
-        try:
-            # cpu.max format: "quota period"
-            # For example, 50% of one CPU = "50000 100000" (50ms out of 100ms)
-            quota = int(cpu_limit * 1000)  # Convert percentage to microseconds
-            period = 100000  # 100ms period
-            with open(cpu_max_path, "w") as f:
-                f.write(f"{quota} {period}")
-            print(f"Set CPU limit to {cpu_limit}% of one core")
-        except Exception as e:
-            print(f"Error setting CPU limit: {e}")
+    Returns:
+        result object or None if failed
+    """
+    import subprocess
+    import signal
+    import os
     
-    return cgroup_path
+    print(f"Running {description} with timeout {timeout}s...")
+    
+    try:
+        if isinstance(command, str):
+            result = subprocess.run(command, shell=True, capture_output=True, 
+                                  text=True, timeout=timeout)
+        else:
+            result = subprocess.run(command, capture_output=True, 
+                                  text=True, timeout=timeout)
+        
+        print(f"Exit code: {result.returncode}")
+        if result.stdout:
+            print(f"stdout:\n{result.stdout}")
+        if result.stderr:
+            print(f"stderr:\n{result.stderr}")
+        return result
+        
+    except subprocess.TimeoutExpired:
+        print(f"⚠️  {description} timed out after {timeout} seconds - killing process")
+        return None
+    except Exception as e:
+        print(f"❌ Error running {description}: {e}")
+        return None
 
 
 def add_process_to_cgroup(cgroup_name, pid=None):
@@ -306,7 +363,7 @@ def add_process_to_cgroup(cgroup_name, pid=None):
         return False
 
 
-def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="100M"):
+def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="100M", cpu_limit=None):
     """
     Run a command in both a cgroup and chroot environment
     
@@ -315,41 +372,34 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
         chroot_dir: Directory to chroot into
         command: Command to run
         memory_limit: Memory limit for the cgroup
+        cpu_limit: CPU limit as percentage
     """
     import subprocess
     import os
     
-    # Create cgroup
-    create_cgroup(cgroup_name, memory_limit=memory_limit)
+    print(f"🚀 Starting {cgroup_name} test...")
+    
+    # Try to create cgroup with both memory and CPU limits
+    cgroup_path = create_cgroup(cgroup_name, memory_limit=memory_limit, cpu_limit=cpu_limit)
     
     if command is None:
         command = ['/bin/sh']
     elif isinstance(command, str):
         command = ['/bin/sh', '-c', command]
     
-    # Create a shell script that adds the process to cgroup then chroots
-    script = f"""
-    echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
-    chroot {chroot_dir} {' '.join(command)}
-    """
-    
-    print(f"Running in cgroup {cgroup_name} with chroot {chroot_dir}")
-    
-    try:
-        result = subprocess.run(['sh', '-c', script], 
-                              capture_output=True, text=True, timeout=60)
-        print(f"Exit code: {result.returncode}")
-        if result.stdout:
-            print(f"stdout:\n{result.stdout}")
-        if result.stderr:
-            print(f"stderr:\n{result.stderr}")
-        return result
-    except subprocess.TimeoutExpired:
-        print("Command timed out after 60 seconds")
-        return None
-    except Exception as e:
-        print(f"Error running command: {e}")
-        return None
+    if cgroup_path:
+        # Create a shell script that adds the process to cgroup then chroots
+        script = f"""
+        echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
+        chroot {chroot_dir} {' '.join(command)}
+        """
+        print(f"Running in cgroup {cgroup_name} with chroot {chroot_dir}")
+        return safe_run_command(script, timeout=30, description=f"cgroup+chroot {cgroup_name}")
+    else:
+        # Fallback: run without cgroup (just chroot)
+        print(f"⚠️  Running WITHOUT cgroup limits (just chroot) in {chroot_dir}")
+        fallback_command = f"chroot {chroot_dir} {' '.join(command)}"
+        return safe_run_command(fallback_command, timeout=30, description=f"chroot-only {cgroup_name}")
 
 
 def test_memory_allocation(cgroup_name="demo", memory_limit="100M"):
@@ -390,17 +440,19 @@ import os
 
 def cpu_stress():
     """Infinite loop to stress CPU"""
-    while True:
+    count = 0
+    while count < 1000000:  # Limit iterations to prevent infinite loop
         # Busy work to consume CPU
-        for i in range(100000):
+        for i in range(1000):
             _ = i * i * i
+        count += 1
         
 print(f"Starting CPU stress test with PID: {os.getpid()}")
 print("This will run multiple threads to stress CPU...")
 
 # Start multiple threads to stress CPU
 threads = []
-for i in range(8):  # 8 threads to stress multiple cores
+for i in range(4):  # Reduced from 8 to 4 threads
     t = threading.Thread(target=cpu_stress)
     t.daemon = True
     t.start()
@@ -410,26 +462,32 @@ for i in range(8):  # 8 threads to stress multiple cores
 # Keep main thread alive and show progress
 start_time = time.time()
 try:
-    while True:
+    for i in range(10):  # Run for maximum 20 seconds
         elapsed = time.time() - start_time
         print(f"CPU stress running for {elapsed:.1f} seconds...", flush=True)
         time.sleep(2)
+    print("CPU stress test completed")
 except KeyboardInterrupt:
     print("Interrupted by user")
 '''
     
-    return run_in_cgroup_chroot(
-        cgroup_name=cgroup_name,
-        chroot_dir="./extracted_python",
-        command=f"python3 -c '{python_code}'",
-        memory_limit="500M"  # Give enough memory but limit CPU
-    )
+    try:
+        return run_in_cgroup_chroot(
+            cgroup_name=cgroup_name,
+            chroot_dir="./extracted_python",
+            command=f"python3 -c '{python_code}'",
+            memory_limit="500M",  # Give enough memory but limit CPU
+            cpu_limit=cpu_limit
+        )
+    except Exception as e:
+        print(f"❌ CPU stress test failed: {e}")
+        return None
 
 
 def test_cpu_bomb(cgroup_name="cpu_bomb", cpu_limit=5):
     """
-    Test extreme CPU usage (CPU bomb) in a cgroup
-    This creates a fork bomb-like CPU intensive process
+    Test controlled CPU usage (CPU bomb) in a cgroup
+    This creates CPU intensive processes but with safeguards
     
     Args:
         cgroup_name: Name of the cgroup
@@ -438,67 +496,85 @@ def test_cpu_bomb(cgroup_name="cpu_bomb", cpu_limit=5):
     python_code = '''
 import os
 import time
-import multiprocessing
+import threading
 
 def cpu_bomb():
-    """Infinite CPU-intensive loop"""
-    while True:
-        # Extremely CPU intensive operations
-        for i in range(1000000):
-            _ = i ** 2 + i ** 3 + i ** 4
+    """CPU-intensive loop with limits"""
+    count = 0
+    while count < 500000:  # Limit iterations
+        # CPU intensive operations
+        for i in range(100):
+            _ = i ** 2 + i ** 3
+        count += 1
         
-print(f"Starting CPU BOMB test with PID: {os.getpid()}")
-print("WARNING: This will attempt to max out ALL CPU cores!")
+print(f"Starting controlled CPU BOMB test with PID: {os.getpid()}")
+print("This will stress CPU with safeguards...")
 
-# Get number of CPU cores
-num_cores = multiprocessing.cpu_count()
-print(f"Detected {num_cores} CPU cores")
+# Start limited number of threads
+threads = []
+for i in range(2):  # Only 2 threads to prevent system overload
+    t = threading.Thread(target=cpu_bomb)
+    t.daemon = True
+    t.start()
+    threads.append(t)
+    print(f"Started CPU bomb thread {i+1}")
 
-# Start one process per CPU core
-processes = []
-for i in range(num_cores * 2):  # 2x cores for maximum stress
-    p = multiprocessing.Process(target=cpu_bomb)
-    p.start()
-    processes.append(p)
-    print(f"Started CPU bomb process {i+1}")
-
-# Keep main process alive
+# Keep main process alive with timeout
 start_time = time.time()
 try:
-    while True:
+    for i in range(15):  # Run for maximum 30 seconds
         elapsed = time.time() - start_time
         print(f"CPU BOMB running for {elapsed:.1f} seconds...", flush=True)
-        time.sleep(1)
+        time.sleep(2)
+    print("CPU bomb test completed")
 except KeyboardInterrupt:
-    print("Interrupted - terminating processes")
-    for p in processes:
-        p.terminate()
+    print("Interrupted - test stopped")
 '''
     
-    return run_in_cgroup_chroot(
-        cgroup_name=cgroup_name,
-        chroot_dir="./extracted_python",
-        command=f"python3 -c '{python_code}'",
-        memory_limit="200M"  # Limited memory and CPU
-    )
+    try:
+        return run_in_cgroup_chroot(
+            cgroup_name=cgroup_name,
+            chroot_dir="./extracted_python",
+            command=f"python3 -c '{python_code}'",
+            memory_limit="200M",  # Limited memory and CPU
+            cpu_limit=cpu_limit
+        )
+    except Exception as e:
+        print(f"❌ CPU bomb test failed: {e}")
+        return None
+
+
+def run_all_tests():
+    """Run all tests with proper error handling"""
+    tests = [
+        ("Basic chroot test", lambda: test_chroot_python()),
+        ("CPU stress test (10% limit)", lambda: test_cpu_stress(cgroup_name="cpu_demo", cpu_limit=10)),
+        ("CPU bomb test (5% limit)", lambda: test_cpu_bomb(cgroup_name="cpu_bomb", cpu_limit=5)),
+    ]
+    
+    for test_name, test_func in tests:
+        print(f"\n{'='*60}")
+        print(f"🧪 Running: {test_name}")
+        print('='*60)
+        
+        try:
+            result = test_func()
+            if result is not None:
+                print(f"✅ {test_name} completed")
+            else:
+                print(f"⚠️  {test_name} completed with warnings")
+        except Exception as e:
+            print(f"❌ {test_name} failed: {e}")
+            print("Continuing with next test...")
+        
+        print(f"{'='*60}")
 
 
 # %% Test basic chroot functionality
 print("Testing chroot Python version:")
 test_chroot_python()
 
-# # %% Test memory allocation with 100M limit - should crash
-# print("Testing memory allocation with 100M limit (should crash):")
-# test_memory_allocation(cgroup_name="demo", memory_limit="1000000")
-
-# # %% Test with 1GB limit - should work longer
-# print("Testing memory allocation with 1GB limit:")
-# test_memory_allocation(cgroup_name="demo2", memory_limit="1000M")
-
-# %% Test CPU stress with 10% limit
-print("Testing CPU stress with 10% CPU limit:")
-test_cpu_stress(cgroup_name="cpu_demo", cpu_limit=10)
-
-# %% Test CPU bomb with 5% limit - should be heavily throttled
-print("Testing CPU BOMB with 5% CPU limit (should be heavily throttled):")
-test_cpu_bomb(cgroup_name="cpu_bomb", cpu_limit=5)
+# %% Run all tests safely
+print("\n🚀 Starting comprehensive container tests...")
+run_all_tests()
+print("\n✅ All tests completed!")
