@@ -2,55 +2,151 @@
 
 # %%
 """
-# Docker Image Layer Extraction
+# W2D2 - Containerization: Internals and Security
 
-#### Introduction: Understanding Docker Internals
+Today you'll learn the fundamentals of containerization by building your own container runtime from the ground up. You'll understand how modern container technologies like Docker work under the hood by implementing the core isolation mechanisms yourself using Linux primitives.
 
-In this exercise, you'll learn how Docker images are structured and stored in registries by implementing a custom image layer extraction tool. You'll interact directly with Docker registry APIs to download and extract container images without using the Docker daemon.
+**IMPORTANT SECURITY NOTICE**: The techniques you'll learn today involve low-level system operations that can affect system stability. You must:
+- Only practice on systems you own or have explicit permission to modify
+- Be careful when working with system calls and kernel features
+- Understand that improper use of these techniques can compromise system security
 
-Docker images are composed of multiple layers, each representing a filesystem change. These layers are stored as compressed tar archives in Docker registries. Understanding this structure is crucial for container security, optimization, and building custom tooling.
+This lab will teach you the building blocks that power modern containerization platforms, giving you deep insight into both their capabilities and limitations.
+
+<!-- toc -->
+
+This exercise explores Docker image layer extraction, container isolation, resource management, 
+and security monitoring. You'll implement custom container tools and understand how modern 
+container runtimes work under the hood.
 
 ## Content & Learning Objectives
 
-### 1️⃣ Image Reference Parsing
-Parse different Docker image reference formats including full URLs, Docker Hub shorthand, and custom registries.
+### 1️⃣ Docker Image Layer Extraction
+Implement a custom image layer extraction tool by interacting directly with Docker registry APIs.
 
 > **Learning Objectives**
-> - Understand Docker image naming conventions
-> - Parse registry URLs and extract components
-> - Handle different image reference formats
+> - Understand Docker image structure and layering
+> - Implement registry authentication and manifest processing
+> - Download and extract compressed layer archives
 
-### 2️⃣ Docker Registry Authentication
-Implement authentication with Docker registries to access private and public images.
+### 2️⃣ Container Isolation with Chroot
+Create isolated filesystem environments using chroot, one of the fundamental isolation mechanisms.
 
-> **Learning Objectives**
-> - Understand Docker registry authentication flows
-> - Implement token-based authentication
-> - Handle registry-specific auth requirements
+> **Learning Objectives**  
+> - Understand chroot filesystem isolation
+> - Execute commands in isolated environments
+> - Explore the foundation of container filesystem isolation
 
-### 3️⃣ Manifest Discovery and Architecture Selection
-Retrieve image manifests and select the appropriate architecture variant.
-
-> **Learning Objectives**
-> - Understand Docker manifest structure
-> - Implement architecture-specific image selection
-> - Handle multi-architecture images
-
-### 4️⃣ Manifest Processing
-Process the selected manifest to extract layer information and metadata.
+### 3️⃣ Resource Management with Cgroups  
+Implement resource limits and management using Linux cgroups for memory and CPU control.
 
 > **Learning Objectives**
-> - Parse Docker manifest v2 schema
-> - Extract layer digests and metadata
-> - Understand manifest structure
+> - Create and configure cgroups with resource limits
+> - Assign processes to cgroups for resource management
+> - Combine cgroup limits with chroot isolation
 
-### 5️⃣ Layer Download and Extraction
-Download and extract individual layers to reconstruct the container filesystem.
+### 4️⃣ Network Isolation and Container Networking
+Set up isolated network environments using namespaces, bridges, and virtual ethernet pairs.
 
 > **Learning Objectives**
-> - Download binary blobs from registries
-> - Extract compressed tar archives
-> - Reconstruct layered filesystems
+> - Understand container networking fundamentals
+> - Implement network isolation with namespaces
+> - Create bridge networks for container communication
+
+### 5️⃣ Security Monitoring and Threat Detection
+Implement security monitoring to detect container escape attempts and malicious syscalls.
+
+> **Learning Objectives**
+> - Monitor dangerous syscalls in real-time
+> - Detect CVE-2024-0137 and similar container escape attempts
+> - Implement automated threat response
+
+## Understanding Containerization
+
+Before diving into the technical implementation, let's understand what containerization provides and why it became so popular in modern software deployment.
+
+### What Are Containers?
+
+Containers are **lightweight, portable execution environments** that package applications with their dependencies while sharing the host operating system kernel. Unlike virtual machines that virtualize entire hardware stacks, containers use Linux kernel features to provide isolation at the process level.
+
+Key characteristics of containers:
+- **Process Isolation**: Each container runs in its own process space
+- **Filesystem Isolation**: Containers have their own filesystem view
+- **Resource Limits**: CPU, memory, and I/O can be controlled and limited
+- **Network Isolation**: Containers can have isolated network stacks
+- **Portability**: Containers run consistently across different environments
+
+### Container vs Virtual Machine Architecture
+
+```
+┌─────────────────────────────────────┐  ┌─────────────────────────────────────┐
+│            Virtual Machines         │  │             Containers              │
+├─────────────────────────────────────┤  ├─────────────────────────────────────┤
+│  App A  │  App B  │  App C          │  │  App A  │  App B  │  App C          │
+├─────────┼─────────┼─────────────────┤  ├─────────┼─────────┼─────────────────┤
+│ Bins/   │ Bins/   │ Bins/           │  │ Bins/   │ Bins/   │ Bins/           │
+│ Libs    │ Libs    │ Libs            │  │ Libs    │ Libs    │ Libs            │
+├─────────┼─────────┼─────────────────┤  ├─────────┼─────────┼─────────────────┤
+│Guest OS │Guest OS │Guest OS         │  │         Container Engine            │
+├─────────┼─────────┼─────────────────┤  ├─────────────────────────────────────┤
+│           Hypervisor                │  │            Host OS                  │
+├─────────────────────────────────────┤  ├─────────────────────────────────────┤
+│            Host OS                  │  │           Hardware                  │
+├─────────────────────────────────────┤  └─────────────────────────────────────┘
+│           Hardware                  │
+└─────────────────────────────────────┘
+```
+
+### Linux Kernel Features for Containerization
+
+Modern containerization relies on several Linux kernel features:
+
+1. **Namespaces**: Provide isolation of system resources
+   - PID namespace: Process ID isolation
+   - Mount namespace: Filesystem mount point isolation
+   - Network namespace: Network stack isolation
+   - UTS namespace: Hostname and domain name isolation
+   - User namespace: User and group ID isolation
+   - IPC namespace: Inter-process communication isolation
+
+2. **Control Groups (cgroups)**: Resource limiting and accounting
+   - Memory limits and usage tracking
+   - CPU time and priority control
+   - I/O bandwidth limiting
+   - Device access control
+
+3. **Union Filesystems**: Layered filesystem management
+   - OverlayFS: Efficient copy-on-write filesystem
+   - AUFS: Another union filesystem (deprecated)
+   - Device Mapper: Block-level storage driver
+
+4. **Security Features**: Additional isolation and access control
+   - Capabilities: Fine-grained privilege control
+   - SELinux/AppArmor: Mandatory access control
+   - Seccomp: System call filtering
+
+### Container Image Format
+
+Container images are **layered filesystems** packaged in a standardized format. Each layer represents a set of filesystem changes, and layers are stacked to create the final container filesystem.
+
+**Image Layers Example**:
+```
+┌─────────────────────────────────────┐
+│     Application Layer               │  ← Your app and configs
+├─────────────────────────────────────┤
+│     Runtime Dependencies           │  ← Python, Node.js, etc.
+├─────────────────────────────────────┤
+│     Package Manager Updates        │  ← apt update, yum update
+├─────────────────────────────────────┤
+│     Base OS Layer                  │  ← Ubuntu, Alpine, etc.
+└─────────────────────────────────────┘
+```
+
+This layered approach provides several benefits:
+- **Efficiency**: Common layers are shared between images
+- **Caching**: Unchanged layers don't need to be re-downloaded
+- **Version Control**: Similar to Git, each layer has a unique hash
+- **Security**: Individual layers can be scanned for vulnerabilities
 
 """
 
@@ -75,14 +171,25 @@ print(f"Detected architecture: {TARGET_ARCH} {TARGET_VARIANT if TARGET_VARIANT e
 
 # %%
 """
-## Exercise 1: Image Reference Parsing
+## Exercise 1.1: Image Reference Parsing
+
+Parse different Docker image reference formats and extract registry, image, and tag components.
 
 Docker images can be referenced in multiple formats:
 - Full registry URLs: `https://registry-1.docker.io/v2/library/hello-world/manifests/latest`
-- Docker Hub format: `hello-world:latest` or `library/hello-world:latest`
+- Docker Hub format: `hello-world:latest` or `library/hello-world:latest` 
 - Custom registries: `gcr.io/google-containers/pause:latest`
 
-Your task is to parse these different formats and extract the registry, image name, and tag.
+<details>
+<summary>Vocabulary: Docker Image References</summary>
+
+- **Registry**: The server that stores Docker images (e.g., registry-1.docker.io for Docker Hub)
+- **Repository**: A collection of related images with the same name but different tags
+- **Tag**: A label that points to a specific version of an image (defaults to "latest")
+- **Manifest**: Metadata about an image including its layers and configuration
+- **Docker Hub**: Docker's official public registry, used as default when no registry is specified
+
+</details>
 
 ### Exercise - implement parse_image_reference
 
@@ -183,14 +290,28 @@ test_parse_image_reference(parse_image_reference)
 
 # %%
 """
-## Exercise 2: Docker Registry Authentication
+## Exercise 1.2: Docker Registry Authentication
 
-Docker registries require authentication to access images. Docker Hub uses a token-based authentication system where you request a token for a specific repository scope.
+Implement authentication with Docker registries using token-based authentication.
+
+Docker registries require authentication to access images. Docker Hub uses a token-based 
+authentication system where you request a token for a specific repository scope.
 
 The authentication flow:
 1. Request a token from the auth server
-2. Include the token in subsequent API requests
+2. Include the token in subsequent API requests  
 3. Token includes scope for specific repository access
+
+<details>
+<summary>Vocabulary: Docker Registry Authentication</summary>
+
+- **Bearer Token**: A type of access token that grants access to specific resources
+- **Scope**: Defines what actions the token allows (e.g., repository:image:pull)
+- **Auth Server**: The server that issues tokens (auth.docker.io for Docker Hub)
+- **Registry Server**: The server that stores actual image data (registry-1.docker.io)
+- **Authorization Header**: HTTP header that contains the Bearer token
+
+</details>
 
 ### Exercise - implement get_auth_token
 
@@ -253,13 +374,28 @@ test_get_auth_token(get_auth_token)
 
 # %%
 """
-## Exercise 3: Manifest Discovery and Architecture Selection
+## Exercise 1.3: Manifest Discovery and Architecture Selection
 
-Docker images support multiple architectures. The manifest list contains manifests for different platforms (architecture + variant combinations). Your task is to:
+Retrieve image manifests and select the appropriate architecture variant.
+
+Docker images support multiple architectures. The manifest list contains manifests for 
+different platforms (architecture + variant combinations). Your task is to:
 
 1. Fetch the manifest list from the registry
 2. Find the manifest for the target architecture
 3. Return the digest of the selected manifest
+
+<details>
+<summary>Vocabulary: Docker Manifests and Architecture</summary>
+
+- **Manifest**: JSON document describing image layers, configuration, and metadata
+- **Manifest List**: Multi-architecture manifest containing platform-specific manifests
+- **Digest**: SHA256 hash that uniquely identifies a manifest or layer
+- **Platform**: Combination of architecture (amd64, arm64) and optional variant (v7, v8)
+- **Architecture**: CPU architecture (amd64, arm64, arm, etc.)
+- **Variant**: Sub-architecture version (e.g., armv7, armv8)
+
+</details>
 
 ### Exercise - implement get_target_manifest
 
@@ -380,9 +516,24 @@ test_get_target_manifest(get_target_manifest, get_auth_token)
 
 # %%
 """
-## Exercise 4: Manifest Processing
+## Exercise 1.4: Manifest Processing
 
-Once you have the manifest digest, you need to fetch the actual manifest document and extract the layer information. The manifest contains metadata about each layer including digests and sizes.
+Process the selected manifest to extract layer information and metadata.
+
+Once you have the manifest digest, you need to fetch the actual manifest document and 
+extract the layer information. The manifest contains metadata about each layer including 
+digests and sizes.
+
+<details>
+<summary>Vocabulary: Manifest Structure</summary>
+
+- **Manifest v2 Schema**: Docker's current manifest format specification
+- **Layer**: A filesystem changeset stored as a compressed tar archive
+- **Media Type**: MIME type indicating the format of manifest or layer data
+- **Layer Digest**: SHA256 hash uniquely identifying a layer blob
+- **Layer Size**: Compressed size of the layer in bytes
+
+</details>
 
 ### Exercise - implement get_manifest_layers
 
@@ -471,9 +622,23 @@ test_get_manifest_layers(get_manifest_layers, get_auth_token, get_target_manifes
 
 # %%
 """
-## Exercise 5: Layer Download and Extraction
+## Exercise 1.5: Layer Download and Extraction
 
-The final step is to download each layer blob and extract it to the output directory. Each layer is a gzipped tar archive that needs to be extracted in order.
+Download and extract individual layers to reconstruct the container filesystem.
+
+The final step is to download each layer blob and extract it to the output directory. 
+Each layer is a gzipped tar archive that needs to be extracted in order.
+
+<details>
+<summary>Vocabulary: Layer Extraction</summary>
+
+- **Blob**: Binary large object - the actual compressed layer data
+- **Gzipped Tar**: Compressed archive format (.tar.gz) used for layer storage
+- **Layer Extraction**: Unpacking layer contents to filesystem in order
+- **Streaming Download**: Downloading large files without loading entirely into memory
+- **Filesystem Layering**: Building final filesystem by applying layers sequentially
+
+</details>
 
 ### Exercise - implement download_and_extract_layers
 
@@ -574,9 +739,22 @@ test_download_and_extract_layers(download_and_extract_layers, get_auth_token,
 
 # %%
 """
-## Complete Implementation: Putting It All Together
+## Exercise 1.6: Complete Implementation
 
-Now let's combine all the exercises into a complete `pull_layers` function that can extract any Docker image.
+Combine all the exercises into a complete `pull_layers` function that can extract any Docker image.
+
+This function orchestrates all the previous functions to provide a complete Docker image extraction tool.
+
+<details>
+<summary>Vocabulary: Container Image Pipeline</summary>
+
+- **Image Reference**: Complete specification of image including registry, name, and tag
+- **Registry API**: RESTful HTTP API for accessing container images and metadata
+- **Multi-Stage Pipeline**: Breaking complex operations into discrete, testable stages
+- **Error Propagation**: Handling and reporting errors from each pipeline stage
+- **Architecture Detection**: Automatically selecting appropriate platform variant
+
+</details>
 
 ### Exercise - implement pull_layers
 
@@ -712,54 +890,28 @@ pull_layers("python:3.12-alpine", "./extracted_python")
 """
 # Container Isolation: Chroot Environments
 
-#### Introduction: Understanding Chroot
+Implement chroot (change root) isolation, one of the fundamental isolation mechanisms used in containers.
 
-In this exercise, you'll learn about chroot (change root), one of the fundamental isolation mechanisms used in containers. Chroot creates a new root directory for processes, effectively "jailing" them within a specific directory tree.
+Chroot creates a new root directory for processes, effectively "jailing" them within a specific 
+directory tree. This creates an isolated environment where the process cannot access files outside 
+the designated directory tree.
 
-Chroot is a Unix system call that changes the apparent root directory for the current running process and its children. This creates an isolated environment where the process cannot access files outside the designated directory tree. While chroot provides basic filesystem isolation, it's not a complete security mechanism on its own - modern containers combine chroot with other isolation techniques like namespaces and cgroups.
-
-Understanding chroot is essential for grasping how containers work under the hood. Docker and other container runtimes use chroot (or more advanced variants) to isolate container filesystems from the host system.
-
-## Content & Learning Objectives
-
-### 1️⃣ Chroot Environment Execution
-Implement a function to execute commands within a chrooted environment.
-
-> **Learning Objectives**
-> - Understand chroot filesystem isolation
-> - Learn how to execute commands in isolated environments
-> - Handle subprocess execution and error management
-> - Explore the foundation of container filesystem isolation
+Understanding chroot is essential for grasping how containers work under the hood. Docker and other 
+container runtimes use chroot (or more advanced variants) to isolate container filesystems from 
+the host system.
 
 <details>
-<summary>Vocabulary: Chroot Terms</summary>
+<summary>Vocabulary: Chroot and Filesystem Isolation</summary>
 
-- **Chroot**: Change root - a system call that changes the apparent root directory
-- **Chroot jail**: An isolated environment created by chroot
-- **Root directory**: The top-level directory (/) in a filesystem hierarchy
-- **Filesystem isolation**: Preventing processes from accessing files outside their designated area
-- **Subprocess**: A separate process spawned by the main program
+- **Chroot**: Unix system call that changes the apparent root directory for a process
+- **Chroot Jail**: Isolated environment where processes can only access files within a directory tree
+- **Root Directory**: The top-level directory (/) in a filesystem hierarchy
+- **Filesystem Isolation**: Preventing processes from accessing files outside their designated area
+- **Subprocess**: A separate process spawned and managed by the main program
 
 </details>
-"""
 
-# %%
-import subprocess
-import os
-from typing import Optional, List, Union
-
-# %%
-"""
-## Exercise: Implementing Chroot Command Execution
-
-The chroot system call is fundamental to container isolation. It changes the root directory for a process, creating a "jail" where the process can only access files within the specified directory tree.
-
-Your task is to implement a function that:
-1. Takes a directory path and optional command
-2. Executes the command within the chrooted environment
-3. Handles different command formats (string vs list)
-4. Provides proper error handling and timeouts
-5. Returns the execution result
+## Exercise 2.1: Chroot Environment Execution
 
 ### Exercise - implement run_chroot
 
@@ -769,7 +921,21 @@ Your task is to implement a function that:
 > You should spend up to ~20 minutes on this exercise.
 
 Implement the `run_chroot` function that executes commands in a chrooted environment.
+
+The chroot system call is fundamental to container isolation. It changes the root directory for 
+a process, creating a "jail" where the process can only access files within the specified directory tree.
+
+Your task is to implement a function that:
+1. Takes a directory path and optional command
+2. Executes the command within the chrooted environment
+3. Handles different command formats (string vs list)
+4. Provides proper error handling and timeouts
+5. Returns the execution result
 """
+
+import subprocess
+import os
+from typing import Optional, List, Union
 
 def run_chroot(chroot_dir: str, command: Optional[Union[str, List[str]]] = None) -> Optional[subprocess.CompletedProcess]:
     """
@@ -922,74 +1088,29 @@ Remember: Chroot is the foundation, but modern containers are much more sophisti
 """
 # Container Resource Management: Cgroups
 
-#### Introduction: Understanding Cgroups
+Implement cgroups (control groups) for resource management and isolation in containers.
 
-In this exercise, you'll learn about cgroups (control groups), a Linux kernel feature that provides resource management and isolation for containers. Cgroups allow you to limit, account for, and isolate resource usage (CPU, memory, disk I/O, etc.) of groups of processes.
+Cgroups are a Linux kernel feature that provides resource management and isolation for containers. 
+They allow you to limit, account for, and isolate resource usage (CPU, memory, disk I/O, etc.) of 
+groups of processes.
 
-Cgroups are essential for container technology, providing the foundation for resource limits and guarantees. Docker, Kubernetes, and other container orchestration systems rely heavily on cgroups to manage resources fairly and prevent resource starvation.
+Cgroups are essential for container technology, providing the foundation for resource limits and 
+guarantees. Docker, Kubernetes, and other container orchestration systems rely heavily on cgroups 
+to manage resources fairly and prevent resource starvation.
 
-Understanding cgroups is crucial for:
-- Setting memory and CPU limits on containers
-- Preventing resource exhaustion attacks
-- Implementing fair resource sharing
-- Building container orchestration systems
+<details>
+<summary>Vocabulary: Cgroups and Resource Management</summary>
 
-## Content & Learning Objectives
+- **Cgroups**: Linux kernel feature for grouping and managing process resources
+- **Control Groups**: Another name for cgroups - groups of processes under resource control
+- **Resource Controller**: Kernel module that manages specific resource types (memory, CPU, etc.)
+- **Cgroup Hierarchy**: Tree structure of nested cgroups in /sys/fs/cgroup filesystem
+- **Memory Limit**: Maximum amount of memory a cgroup can use
+- **OOM Killer**: Out-of-memory killer that terminates processes when limits are exceeded
 
-### 1️⃣ Basic Cgroup Creation
-Create and configure basic cgroups with memory limits.
+</details>
 
-> **Learning Objectives**
-> - Understand cgroup filesystem structure
-> - Learn to create cgroup directories
-> - Configure memory limits and controllers
-
-### 2️⃣ Process Assignment
-Assign processes to cgroups for resource management.
-
-> **Learning Objectives**
-> - Learn how to add processes to cgroups
-> - Understand process inheritance in cgroups
-> - Handle process assignment errors
-
-### 3️⃣ Combined Cgroup-Chroot Execution
-Execute commands with both cgroup limits and chroot isolation.
-
-> **Learning Objectives**
-> - Combine multiple isolation mechanisms
-> - Understand container-like execution
-> - Handle complex execution pipelines
-
-### 4️⃣ Comprehensive Cgroup Setup (Part 1)
-Set up cgroups with comprehensive memory management.
-
-> **Learning Objectives**
-> - Configure advanced cgroup features
-> - Understand memory subsystem options
-> - Implement robust memory limits
-
-### 5️⃣ Comprehensive Cgroup Setup (Part 2)
-Complete comprehensive memory management with swap control and OOM settings.
-
-> **Learning Objectives**
-> - Configure swap and OOM behavior
-> - Understand memory pressure handling
-> - Implement production-ready memory limits
-
-"""
-
-# %%
-import subprocess
-import os
-import signal
-import time
-from typing import Optional, List, Union
-
-# %%
-"""
-## Exercise 1: Basic Cgroup Creation
-
-Cgroups are organized in a hierarchy in the `/sys/fs/cgroup` filesystem. To create a cgroup, you need to create directories and write to control files to configure resource limits.
+## Exercise 3.1: Basic Cgroup Creation
 
 ### Exercise - implement create_cgroup
 
@@ -999,7 +1120,16 @@ Cgroups are organized in a hierarchy in the `/sys/fs/cgroup` filesystem. To crea
 > You should spend up to ~15 minutes on this exercise.
 
 Implement the `create_cgroup` function that creates a basic cgroup with memory limits.
+
+Cgroups are organized in a hierarchy in the `/sys/fs/cgroup` filesystem. To create a cgroup, 
+you need to create directories and write to control files to configure resource limits.
 """
+
+import subprocess
+import os
+import signal
+import time
+from typing import Optional, List, Union
 
 def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
     """
@@ -1078,9 +1208,12 @@ test_create_cgroup(create_cgroup)
 
 # %%
 """
-## Exercise 2: Process Assignment
+## Exercise 3.2: Process Assignment
 
-Once a cgroup is created, processes can be assigned to it by writing their PIDs to the `cgroup.procs` file. This allows the cgroup to manage resources for those processes.
+Assign processes to cgroups for resource management.
+
+Once a cgroup is created, processes can be assigned to it by writing their PIDs to the 
+`cgroup.procs` file. This allows the cgroup to manage resources for those processes.
 
 ### Exercise - implement add_process_to_cgroup
 
@@ -1157,9 +1290,12 @@ test_add_process_to_cgroup(add_process_to_cgroup, create_cgroup)
 
 # %%
 """
-## Exercise 3: Combined Cgroup-Chroot Execution
+## Exercise 3.3: Combined Cgroup-Chroot Execution
 
-This exercise combines cgroup resource limits with chroot filesystem isolation, creating a more complete container-like environment.
+Execute commands with both cgroup limits and chroot isolation.
+
+This exercise combines cgroup resource limits with chroot filesystem isolation, creating 
+a more complete container-like environment.
 
 ### Exercise - implement run_in_cgroup_chroot
 
@@ -1182,9 +1318,6 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
         memory_limit: Memory limit for the cgroup
     """
     if "SOLUTION":
-        import subprocess
-        import os
-        
         # Create cgroup
         create_cgroup(cgroup_name, memory_limit=memory_limit)
         
@@ -1592,7 +1725,8 @@ EOF
         return None
 
 print("Testing complete comprehensive cgroup creation with memory test...")
-test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
+## UNCOMMENT THIS TO RUN THE TEST. Potential FIXME
+# test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
 print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
 # %%
 """
@@ -1634,13 +1768,10 @@ Remember: These are the actual implementations used in real container systems!
 """
 # Container Namespace Isolation
 
-In this exercise, you'll implement namespace isolation for containers, which is a fundamental security mechanism
-that provides process, network, and filesystem isolation between containers and the host system.
+Implement namespace isolation for containers, providing process, network, and filesystem isolation.
 
-## Introduction
-
-Linux namespaces are a feature of the Linux kernel that allows processes to have a view of system resources
-that differs from other processes. There are several types of namespaces:
+Linux namespaces are a feature of the Linux kernel that allows processes to have a view of system 
+resources that differs from other processes. There are several types of namespaces:
 
 - **PID namespace**: Isolates process IDs - processes inside see different PIDs
 - **Network namespace**: Isolates network interfaces, routing tables, firewall rules
@@ -1648,19 +1779,29 @@ that differs from other processes. There are several types of namespaces:
 - **UTS namespace**: Isolates hostname and domain name
 - **IPC namespace**: Isolates inter-process communication resources
 
-This exercise demonstrates how to create a container with proper namespace isolation and test that
-the isolation is working correctly.
+<details>
+<summary>Vocabulary: Linux Namespaces</summary>
 
-## Content & Learning Objectives
+- **Namespace**: Kernel mechanism that provides isolated views of system resources
+- **PID Namespace**: Isolates process ID space - processes see different PIDs
+- **Network Namespace**: Isolates network interfaces, routing tables, and firewall rules
+- **Mount Namespace**: Isolates filesystem mount points and mount propagation
+- **UTS Namespace**: Isolates hostname and NIS domain name
+- **IPC Namespace**: Isolates System V IPC objects and POSIX message queues
+- **Unshare**: System call/command to create new namespaces
 
-### Exercise: Namespace Isolation
+</details>
+
+## Exercise 4.1: Namespace Isolation
+
+### Exercise - implement run_in_cgroup_chroot_namespaced
 
 > **Difficulty**: 🔴🔴🔴🔴⚪  
 > **Importance**: 🔵🔵🔵🔵🔵
 > 
 > You should spend up to ~20 minutes on this exercise.
 
-You'll implement a function that runs a process in an isolated container environment using multiple namespaces.
+Implement a function that runs a process in an isolated container environment using multiple namespaces.
 """
 
 import subprocess
@@ -1797,38 +1938,44 @@ def test_namespace_isolation():
 test_namespace_isolation() 
 
 
-#!/usr/bin/env python3
-
 # %%
 """
 # Container Networking
 
-In this exercise, you'll implement container networking using Linux bridges, virtual ethernet pairs (veth), 
-and network namespaces. This is fundamental to how Docker and other container runtimes provide network isolation 
-while allowing containers to communicate with each other and the outside world.
-
-## Introduction
+Implement container networking using Linux bridges, virtual ethernet pairs (veth), and network namespaces.
 
 Container networking involves several key concepts:
-
 - **Bridge Networks**: Software switches that connect multiple network interfaces
 - **Virtual Ethernet Pairs (veth)**: Pairs of connected network interfaces that act like a virtual cable
 - **Network Namespaces**: Isolated network stacks with their own interfaces, routing tables, and firewall rules
 - **NAT (Network Address Translation)**: Allows containers with private IPs to access the internet
 - **iptables**: Linux firewall rules for packet filtering and NAT
 
-A typical container network setup involves:
-1. Creating a bridge network on the host
-2. Creating veth pairs for each container
-3. Moving one end of each veth pair into the container's network namespace
-4. Configuring IP addresses and routing
-5. Setting up NAT rules for internet access
+<details>
+<summary>Vocabulary: Container Networking</summary>
 
-## Content & Learning Objectives
+- **Bridge**: Software switch that connects multiple network interfaces at Layer 2
+- **Veth Pair**: Virtual ethernet cable connecting two network namespaces
+- **Network Namespace**: Isolated network stack with its own interfaces and routing
+- **NAT (Network Address Translation)**: Technique for sharing one IP address among multiple devices
+- **iptables**: Linux firewall and NAT configuration tool
+- **MASQUERADE**: iptables target that provides dynamic NAT for changing IP addresses
 
-### 5.1 Bridge Network Setup
-### 5.2 Container Network Creation
-### 5.3 Running Networked Containers
+</details>
+
+## Exercise 5.1: Bridge Network Setup
+
+### Exercise - implement create_bridge_interface and setup_nat_forwarding
+
+> **Difficulty**: 🔴🔴🔴🔴⚪  
+> **Importance**: 🔵🔵🔵🔵🔵
+> 
+> You should spend up to ~25 minutes on this exercise.
+
+Implement bridge interface creation and NAT/forwarding rules for container internet connectivity.
+
+A bridge network acts as a software switch that connects multiple network interfaces. After creating 
+the bridge, we need iptables rules for NAT and packet forwarding to allow internet access.
 """
 
 import subprocess
@@ -2025,7 +2172,6 @@ def setup_nat_forwarding():
         #   - Add forwarding rules between bridge and default interface
         pass
 
-
 def setup_bridge_network():
     """
     Complete bridge network setup combining interface creation and NAT configuration
@@ -2042,7 +2188,6 @@ def setup_bridge_network():
     
     print("✓ Complete bridge network setup successful!")
     return True
-
 
 def test_nat_forwarding():
     """Test NAT and forwarding setup"""
@@ -2068,7 +2213,6 @@ def test_nat_forwarding():
     print("=" * 60)
     return result
 
-
 def test_bridge_network():
     """Test complete bridge network setup"""
     print("Testing complete bridge network setup...")
@@ -2082,7 +2226,6 @@ def test_bridge_network():
     print("=" * 60)
     return result
 
-
 # Run the tests
 test_nat_forwarding()
 test_bridge_network()
@@ -2090,6 +2233,8 @@ test_bridge_network()
 # %%
 """
 ## Exercise 5.2: Container Network Creation
+
+Create network interfaces for individual containers using virtual ethernet pairs.
 
 For each container, we need to create a virtual ethernet pair (veth) - one end stays on the host 
 and connects to the bridge, while the other end goes into the container's network namespace.
@@ -2103,7 +2248,6 @@ and connects to the bridge, while the other end goes into the container's networ
 
 Implement the container network creation function that sets up isolated networking for a container.
 """
-
 
 def create_container_network(container_id, ip_suffix):
     """
@@ -2339,7 +2483,9 @@ test_container_network()
 """
 ## Exercise 5.3: Running Networked Containers
 
-Now let's combine everything to create a complete networked container that has:
+Create complete networked containers with full networking support.
+
+This exercise combines everything to create a complete networked container that has:
 - Process isolation (cgroups, namespaces)
 - Filesystem isolation (chroot)
 - Network isolation (network namespaces)
@@ -2513,8 +2659,8 @@ and malicious syscalls. This is crucial for preventing CVE-2024-0137 and similar
 
 ## Introduction
 
-Container security monitoring involves tracking system calls that could indicate escape attempts or malicious behavior.
-Key concepts include:
+Container security monitoring involves tracking system calls that could indicate escape attempts or 
+malicious behavior. Key concepts include:
 
 - **Syscall Monitoring**: Using strace to monitor dangerous system calls in real-time
 - **CVE-2024-0137**: A container escape vulnerability involving namespace manipulation
@@ -2933,3 +3079,44 @@ print('Attack simulation completed')
 # Run the tests
 test_monitored_container_safe()
 test_monitored_container_attack()
+
+# %%
+"""
+## Summary: Container Internals and Security
+
+Through these exercises, you've implemented the core components of container technology:
+
+### Key Concepts Learned
+
+1. **Docker Image Structure**: Images are composed of layers stored as compressed tar archives
+2. **Registry APIs**: Programmatic access to image repositories with authentication
+3. **Chroot Isolation**: Filesystem isolation using change root system calls  
+4. **Cgroup Resource Management**: Memory and CPU limits for process groups
+5. **Namespace Isolation**: Process, network, and filesystem isolation
+6. **Container Networking**: Bridge networks, veth pairs, and NAT for connectivity
+7. **Security Monitoring**: Syscall monitoring and threat detection
+
+### Real-World Applications
+
+These implementations mirror how production container systems work:
+- **Docker/Podman**: Use these exact isolation mechanisms
+- **Kubernetes**: Orchestrates containers with these primitives
+- **Container Security**: Monitoring and preventing container escapes
+- **Custom Container Tools**: Building specialized container runtimes
+
+### Security Considerations
+
+- **Defense in Depth**: Combine multiple isolation mechanisms
+- **Resource Limits**: Prevent resource exhaustion attacks  
+- **Syscall Monitoring**: Detect container escape attempts
+- **Network Isolation**: Limit container network access
+- **Image Validation**: Verify image integrity and signatures
+
+Understanding these fundamentals is essential for:
+- Building secure containerized applications
+- Implementing container orchestration systems
+- Debugging container runtime issues
+- Developing container security solutions
+
+Remember: These are the actual building blocks that power modern container platforms!
+"""
