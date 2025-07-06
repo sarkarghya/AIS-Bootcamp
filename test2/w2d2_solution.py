@@ -1726,7 +1726,45 @@ EOF
 
 print("Testing complete comprehensive cgroup creation with memory test...")
 ## UNCOMMENT THIS TO RUN THE TEST. Potential FIXME
-# test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
+print("Forking process to run memory test...")
+
+# Fork the process
+pid = os.fork()
+
+if pid == 0:
+    # Child process - run the memory test here
+    try:
+        print("Child process starting memory test...")
+        test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
+    except Exception as e:
+        print(f"Child process error: {e}")
+    finally:
+        # Child must exit explicitly to avoid continuing parent code
+        os._exit(0)
+
+else:
+    # Parent process - wait for child and report results
+    print(f"✓ Forked child process with PID: {pid}")
+    
+    try:
+        # Wait for child process to complete
+        _, status = os.waitpid(pid, 0)
+        
+        # Check how the child process ended
+        if os.WIFEXITED(status):
+            exit_code = os.WEXITSTATUS(status)
+            print(f"Child exited with code: {exit_code}")
+        elif os.WIFSIGNALED(status):
+            signal_num = os.WTERMSIG(status)
+            if signal_num == 9:  # SIGKILL
+                print("✓ Child was KILLED by OOM - cgroup memory limit working!")
+            else:
+                print(f"✓ Child was killed by signal {signal_num}")
+        
+        print("✓ Parent process continues running!")
+        
+    except Exception as e:
+        print(f"Error waiting for child: {e}")
 print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
 # %%
 """
