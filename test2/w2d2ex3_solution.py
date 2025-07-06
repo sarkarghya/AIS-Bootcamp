@@ -324,10 +324,13 @@ print('Process PID:', os.getpid())
 
 import random
 data = []
+sum = 0
 for i in range(99):
     # Use random data to prevent optimization
-    data.append(str(random.random()) * 10 * 1024 * 1024)  # 10MB chunks
-    print('Allocated ' + str((i+1) * 10) + 'MB', flush=True)
+    random_number = random.random()
+    data.append(str(random_number) * 10 * 1024 * 1024)  # 10MB chunks
+    sum += random_number
+    print('Allocated ' + str(sum * 10) + 'MB', flush=True)
 
 print('Test completed - this should not be reached if limits work!')
 "
