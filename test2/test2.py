@@ -222,6 +222,326 @@ def run_chroot(chroot_dir, command=None):
         return None
 
 
+def why_chroot_is_bad():
+    """
+    Explain why chroot is considered insecure and why pivot_root is better
+    
+    CHROOT VULNERABILITIES:
+    1. chroot only changes the apparent root directory for a process
+    2. The real root filesystem remains accessible through various methods
+    3. Processes can escape chroot with sufficient privileges
+    4. File descriptors to directories outside chroot remain valid
+    5. chroot doesn't provide true isolation - it's more like "hiding" the root
+    
+    WHY PEOPLE SWITCHED TO PIVOT_ROOT:
+    1. pivot_root actually moves the old root filesystem to a new location
+    2. It makes the new filesystem the real root, not just apparent root
+    3. The old root is completely hidden and inaccessible
+    4. It provides true filesystem isolation
+    5. It's the foundation of modern container security
+    """
+    print("🔒 CHROOT SECURITY ANALYSIS")
+    print("="*50)
+    
+    print("\n❌ CHROOT VULNERABILITIES:")
+    print("1. chroot only changes apparent root directory")
+    print("2. Real root filesystem remains accessible")  
+    print("3. Privileged processes can escape chroot")
+    print("4. File descriptors outside chroot remain valid")
+    print("5. Not true isolation - just 'hiding' the root")
+    
+    print("\n✅ WHY PIVOT_ROOT IS BETTER:")
+    print("1. Actually moves old root to new location")
+    print("2. Makes new filesystem the REAL root")
+    print("3. Old root becomes completely inaccessible")
+    print("4. Provides true filesystem isolation")
+    print("5. Foundation of modern container security")
+    
+    print("\n🛡️  PIVOT_ROOT SECURITY BENEFITS:")
+    print("- Complete obfuscation of real root")
+    print("- No way to access old filesystem")
+    print("- True isolation, not just apparent isolation")
+    print("- Used by Docker, LXC, and other container runtimes")
+    
+    return True
+
+
+def demonstrate_chroot_escape():
+    """
+    Demonstrate how chroot can be escaped (for educational purposes)
+    WARNING: This shows actual chroot escape techniques!
+    """
+    print("\n🚨 CHROOT ESCAPE DEMONSTRATION")
+    print("="*50)
+    print("⚠️  WARNING: This demonstrates actual escape techniques!")
+    
+    # Method 1: Using open file descriptor
+    escape_script = """
+import os
+import tempfile
+
+print("=== CHROOT ESCAPE ATTEMPT ===")
+
+# Method 1: Try to access parent directory before chroot
+print("1. Attempting to access parent directory...")
+try:
+    # This would work if we had a file descriptor to parent before chroot
+    print("   In real attack: fd = os.open('..', os.O_RDONLY)")
+    print("   Then after chroot: os.fchdir(fd)")
+    print("   Result: Can escape back to real root")
+except Exception as e:
+    print(f"   Blocked: {e}")
+
+# Method 2: Try to access /proc/self/root
+print("2. Attempting to access /proc/self/root...")
+try:
+    if os.path.exists('/proc/self/root'):
+        print("   /proc/self/root exists - this points to REAL root!")
+        print("   In real attack: os.chdir('/proc/self/root')")
+        print("   Result: Can see real filesystem")
+    else:
+        print("   /proc/self/root not available in this chroot")
+except Exception as e:
+    print(f"   Error: {e}")
+
+# Method 3: Try to access through /proc/1/root (if accessible)
+print("3. Attempting to access /proc/1/root...")
+try:
+    if os.path.exists('/proc/1/root'):
+        print("   /proc/1/root exists - this points to host root!")
+        print("   In real attack: os.chdir('/proc/1/root')")  
+        print("   Result: Complete escape to host filesystem")
+    else:
+        print("   /proc/1/root not accessible (good isolation)")
+except Exception as e:
+    print(f"   Error: {e}")
+
+print("\\n🔍 CHROOT ESCAPE SUMMARY:")
+print("- chroot is NOT a security boundary")
+print("- Multiple escape techniques exist")
+print("- Real containers use pivot_root instead")
+print("- This is why Docker doesn't rely on chroot alone")
+"""
+    
+    print("Running chroot escape demonstration...")
+    run_chroot("./extracted_python", f"python3 -c '{escape_script}'")
+    
+    print("\n📝 LESSON LEARNED:")
+    print("chroot is NOT sufficient for security isolation!")
+    print("This is why modern containers use pivot_root + namespaces")
+
+
+def setup_pivot_root_demo():
+    """
+    Set up a demonstration of pivot_root vs chroot
+    Creates necessary directory structure and mount points
+    """
+    import os
+    import subprocess
+    
+    print("🔧 SETTING UP PIVOT_ROOT DEMO")
+    print("="*50)
+    
+    # Create demo directories
+    demo_dirs = [
+        "./pivot_demo",
+        "./pivot_demo/new_root", 
+        "./pivot_demo/old_root",
+        "./pivot_demo/new_root/old_root_hidden"
+    ]
+    
+    for dir_path in demo_dirs:
+        os.makedirs(dir_path, exist_ok=True)
+        print(f"✓ Created: {dir_path}")
+    
+    # Copy essential files to new root
+    print("\n📋 Copying essential files to new root...")
+    try:
+        # Copy basic shell and Python
+        subprocess.run(['cp', '-r', './extracted_python/*', './pivot_demo/new_root/'], 
+                      shell=True, check=True)
+        print("✓ Copied Python environment to new root")
+        
+        # Create some test files
+        with open('./pivot_demo/new_root/container_file.txt', 'w') as f:
+            f.write("This file exists in the container root\n")
+        
+        with open('./pivot_demo/host_secret.txt', 'w') as f:
+            f.write("THIS IS A SECRET FILE FROM THE HOST!\n")
+            f.write("In chroot: might be accessible\n")
+            f.write("In pivot_root: completely hidden\n")
+        
+        print("✓ Created test files")
+        
+    except Exception as e:
+        print(f"⚠️  Warning: Could not copy files: {e}")
+        print("   Will create minimal demo structure")
+    
+    return True
+
+
+def run_pivot_root(new_root, old_root_name="old_root"):
+    """
+    Demonstrate pivot_root - the secure alternative to chroot
+    
+    Args:
+        new_root: Path to new root directory
+        old_root_name: Name for directory where old root will be moved
+    """
+    import subprocess
+    import os
+    
+    print(f"🔄 RUNNING PIVOT_ROOT DEMO")
+    print("="*50)
+    
+    if os.geteuid() != 0:
+        print("⚠️  WARNING: pivot_root requires root privileges")
+        print("   This demo will show the concept without actual execution")
+        print("   In practice, containers run this with proper privileges")
+        
+        print(f"\n📜 PIVOT_ROOT COMMANDS (requires root):")
+        print(f"1. mount --bind {new_root} {new_root}")
+        print(f"2. pivot_root {new_root} {new_root}/{old_root_name}")
+        print(f"3. chroot . sh")
+        print(f"4. umount /{old_root_name}")
+        print(f"5. rmdir /{old_root_name}")
+        
+        print(f"\n🔍 WHAT PIVOT_ROOT DOES:")
+        print("1. Makes new_root the actual root filesystem")
+        print("2. Moves old root to new_root/old_root_name")
+        print("3. After unmounting, old root is completely gone")
+        print("4. No way to access original filesystem")
+        
+        # Simulate what would happen
+        print(f"\n🎭 SIMULATING PIVOT_ROOT EFFECT:")
+        simulated_command = f"""
+# Before pivot_root:
+echo "=== BEFORE PIVOT_ROOT ==="
+echo "Current directory: $(pwd)"
+echo "Files in current directory:"
+ls -la
+
+# After pivot_root (simulated):
+echo "=== AFTER PIVOT_ROOT ==="
+echo "New root is now: {new_root}"
+echo "Old root moved to: /{old_root_name}"
+echo "Files in new root:"
+ls -la {new_root}
+echo "Host secret file accessibility:"
+if [ -f "./host_secret.txt" ]; then
+    echo "❌ SECURITY BREACH: Host file still accessible!"
+    cat ./host_secret.txt
+else
+    echo "✅ SECURE: Host files are hidden"
+fi
+
+# After unmounting old root:
+echo "=== AFTER UNMOUNTING OLD ROOT ==="
+echo "Old root is now completely gone"
+echo "No way to access original filesystem"
+echo "Container has complete filesystem isolation"
+"""
+        
+        run_chroot("./extracted_python", simulated_command)
+        
+    else:
+        print("🔓 Running with root privileges - executing real pivot_root...")
+        
+        # This would be the actual pivot_root implementation
+        pivot_script = f"""
+#!/bin/bash
+set -e
+
+echo "🔄 EXECUTING REAL PIVOT_ROOT"
+echo "==============================="
+
+# Create bind mount for new root
+echo "1. Creating bind mount..."
+mount --bind {new_root} {new_root}
+
+# Ensure old root directory exists in new root
+mkdir -p {new_root}/{old_root_name}
+
+echo "2. Executing pivot_root..."
+pivot_root {new_root} {new_root}/{old_root_name}
+
+echo "3. Changing to new root..."
+cd /
+
+echo "4. Checking filesystem isolation..."
+echo "Files in new root:"
+ls -la /
+
+echo "5. Checking if old root is accessible..."
+if [ -d "/{old_root_name}" ]; then
+    echo "Old root is at: /{old_root_name}"
+    echo "Contents: $(ls /{old_root_name} | head -5)"
+else
+    echo "Old root not found"
+fi
+
+echo "6. Unmounting old root..."
+umount /{old_root_name}
+rmdir /{old_root_name}
+
+echo "7. Verification - old root should be gone:"
+if [ -d "/{old_root_name}" ]; then
+    echo "❌ ERROR: Old root still exists"
+else
+    echo "✅ SUCCESS: Old root completely hidden"
+fi
+
+echo "🎉 PIVOT_ROOT COMPLETE - TOTAL ISOLATION ACHIEVED"
+"""
+        
+        with open('./pivot_demo/pivot_script.sh', 'w') as f:
+            f.write(pivot_script)
+        
+        try:
+            subprocess.run(['chmod', '+x', './pivot_demo/pivot_script.sh'], check=True)
+            result = subprocess.run(['./pivot_demo/pivot_script.sh'], 
+                                  capture_output=True, text=True, timeout=30)
+            
+            print("PIVOT_ROOT OUTPUT:")
+            print(result.stdout)
+            if result.stderr:
+                print("ERRORS:")
+                print(result.stderr)
+                
+        except Exception as e:
+            print(f"Error executing pivot_root: {e}")
+    
+    return True
+
+
+def compare_chroot_vs_pivot_root():
+    """
+    Side-by-side comparison of chroot vs pivot_root security
+    """
+    print("\n🔍 CHROOT vs PIVOT_ROOT COMPARISON")
+    print("="*60)
+    
+    comparison_data = [
+        ("Security Level", "❌ Weak", "✅ Strong"),
+        ("Root Access", "❌ Real root accessible", "✅ Real root hidden"),
+        ("Escape Methods", "❌ Multiple escapes", "✅ No known escapes"),
+        ("File Descriptors", "❌ Outside FDs work", "✅ Outside FDs invalid"),
+        ("Proc Access", "❌ /proc/*/root works", "✅ /proc isolated"),
+        ("True Isolation", "❌ Apparent only", "✅ Complete isolation"),
+        ("Container Use", "❌ Not used alone", "✅ Core technology"),
+        ("Mount Points", "❌ Original mounts", "✅ New mount namespace")
+    ]
+    
+    print(f"{'Aspect':<20} {'CHROOT':<25} {'PIVOT_ROOT':<25}")
+    print("-" * 70)
+    
+    for aspect, chroot_status, pivot_status in comparison_data:
+        print(f"{aspect:<20} {chroot_status:<25} {pivot_status:<25}")
+    
+    print("\n🏆 WINNER: PIVOT_ROOT")
+    print("Modern containers use pivot_root + namespaces for true security")
+
+
 def test_chroot_python():
     """Test that chrooted Python is version 3.12"""
     return run_chroot("./extracted_python", "python --version")
@@ -688,6 +1008,31 @@ print("TESTING CHROOT FUNCTIONALITY")
 print("="*50)
 print("Testing chroot Python version:")
 test_chroot_python()
+
+# %% Test chroot security analysis
+print("\n" + "="*50)
+print("CHROOT SECURITY ANALYSIS")
+print("="*50)
+
+# Explain why chroot is bad
+why_chroot_is_bad()
+
+# Demonstrate chroot escape techniques
+demonstrate_chroot_escape()
+
+# Compare chroot vs pivot_root
+compare_chroot_vs_pivot_root()
+
+# %% Test pivot_root demonstration
+print("\n" + "="*50)
+print("PIVOT_ROOT DEMONSTRATION")
+print("="*50)
+
+# Set up pivot_root demo
+setup_pivot_root_demo()
+
+# Run pivot_root demo
+run_pivot_root("./pivot_demo/new_root", "old_root_hidden")
 
 # %% Test namespace isolation
 print("\n" + "="*50)
@@ -1352,20 +1697,22 @@ def monitor_container_syscalls(container_command, alert_callback):
         
         # Monitor stderr for syscall traces
         def monitor_stderr():
-            for line in iter(process.stderr.readline, ''):
-                if line.strip():
-                    # Check for dangerous syscalls
-                    if any(syscall in line for syscall in DANGEROUS_SYSCALLS):
-                        alert_callback(line.strip(), process.pid)
-                    # Also print container output
-                    if not any(syscall in line for syscall in DANGEROUS_SYSCALLS):
-                        print(f"[CONTAINER] {line.strip()}")
+            if process.stderr:
+                for line in iter(process.stderr.readline, ''):
+                    if line.strip():
+                        # Check for dangerous syscalls
+                        if any(syscall in line for syscall in DANGEROUS_SYSCALLS):
+                            alert_callback(line.strip(), process.pid)
+                        # Also print container output
+                        if not any(syscall in line for syscall in DANGEROUS_SYSCALLS):
+                            print(f"[CONTAINER] {line.strip()}")
         
         # Monitor stdout for normal output
         def monitor_stdout():
-            for line in iter(process.stdout.readline, ''):
-                if line.strip():
-                    print(f"[CONTAINER] {line.strip()}")
+            if process.stdout:
+                for line in iter(process.stdout.readline, ''):
+                    if line.strip():
+                        print(f"[CONTAINER] {line.strip()}")
         
         # Start monitoring threads
         stderr_thread = threading.Thread(target=monitor_stderr, daemon=True)
