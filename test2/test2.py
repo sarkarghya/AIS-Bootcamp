@@ -411,21 +411,20 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         print(f"Warning: Could not set OOM group: {e}")
     
     # Set low memory.high to trigger pressure before hitting max
-    if memory_limit:
-        try:
-            # Parse memory limit to set memory.high to 90% of max
-            if memory_limit.endswith('M'):
-                limit_mb = int(memory_limit[:-1])
-                high_limit = f"{int(limit_mb * 0.9)}M"
-            else:
-                high_limit = str(int(int(memory_limit) * 0.9))
-            
-            memory_high_path = f"{cgroup_path}/memory.high"
-            with open(memory_high_path, "w") as f:
-                f.write(high_limit)
-            print(f"✓ Set memory.high to {high_limit} (90% of max)")
-        except Exception as e:
-            print(f"Warning: Could not set memory.high: {e}")
+    # if memory_limit:
+    #     try:
+    #         # Parse memory limit to set memory.high to 90% of max
+    #         if memory_limit.endswith('M'):
+    #             limit_mb = int(memory_limit[:-1])
+    #             high_limit = f"{int(limit_mb * 0.9)}M"
+    #         else:
+    #             high_limit = str(int(int(memory_limit) * 0.9))
+    #         memory_high_path = f"{cgroup_path}/memory.high"
+    #         with open(memory_high_path, "w") as f:
+    #             f.write(high_limit)
+    #         print(f"✓ Set memory.high to {high_limit} (90% of max)")
+    #     except Exception as e:
+    #         print(f"Warning: Could not set memory.high: {e}")
     
     return cgroup_path
 
