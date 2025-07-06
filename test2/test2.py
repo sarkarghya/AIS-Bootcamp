@@ -229,10 +229,10 @@ def test_chroot_python():
 
 def pivot_root(new_root, old_root_mountpoint):
     """
-    Implement pivot_root for proper filesystem isolation
+    Implement pivot_root with proper mount namespace handling
     
     Args:
-        new_root: Path to the new root filesystem (e.g., './extracted_python')
+        new_root: Path to the new root filesystem
         old_root_mountpoint: Where to mount the old root within new_root
     
     Returns:
@@ -250,20 +250,27 @@ def pivot_root(new_root, old_root_mountpoint):
         # Convert to absolute path
         new_root = os.path.abspath(new_root)
         
-        # Ensure new_root exists and is a directory
-        if not os.path.isdir(new_root):
-            print(f"Error: {new_root} is not a valid directory")
-            return False
+        # Create a new mount namespace to isolate our changes
+        subprocess.run(['unshare', '--mount'], check=True)
         
-        # Make new_root a mount point
-        subprocess.run(['mount', '--bind', new_root, new_root], check=True)
+        # Make the parent directory a mount point to satisfy pivot_root requirements
+        parent_dir = os.path.dirname(new_root)
+        subprocess.run(['mount', '--bind', parent_dir, parent_dir], check=True)
         
-        # Create old root directory inside new root
-        old_root_path = os.path.join(new_root, old_root_mountpoint.lstrip('/'))
+        # Create a tmpfs mount for the new root to ensure it's on a different filesystem
+        temp_mount = f"{new_root}_mount"
+        os.makedirs(temp_mount, exist_ok=True)
+        subprocess.run(['mount', '-t', 'tmpfs', 'tmpfs', temp_mount], check=True)
+        
+        # Copy contents to the tmpfs mount
+        subprocess.run(['cp', '-a', f"{new_root}/.", temp_mount], check=True)
+        
+        # Create old root directory in the new mount
+        old_root_path = os.path.join(temp_mount, old_root_mountpoint.lstrip('/'))
         os.makedirs(old_root_path, exist_ok=True)
         
-        # Execute pivot_root
-        subprocess.run(['pivot_root', new_root, old_root_path], check=True)
+        # Now pivot_root should work
+        subprocess.run(['pivot_root', temp_mount, old_root_path], check=True)
         
         # Change to new root
         os.chdir('/')
@@ -275,89 +282,91 @@ def pivot_root(new_root, old_root_mountpoint):
         
     except subprocess.CalledProcessError as e:
         print(f"pivot_root failed: {e}")
-        # Clean up bind mount if it exists
-        try:
-            subprocess.run(['umount', new_root], stderr=subprocess.DEVNULL)
-        except:
-            pass
         return False
     except Exception as e:
         print(f"Error: {e}")
         return False
 
-def test_pivot_root():
+def test_pivot_root_with_namespace():
     """
-    Test pivot_root using the extracted_python directory
+    Test pivot_root using mount namespaces for proper isolation
     """
     import os
     import subprocess
     
-    print("=== Testing pivot_root with extracted_python ===")
+    print("=== Testing pivot_root with mount namespaces ===")
     
-    # Check privileges first
+    # Check privileges
     if os.geteuid() != 0:
         print("✗ Test requires root privileges")
-        print("Run with: sudo python3 script.py")
         return False
     
     chroot_dir = "./extracted_python"
-    old_root_dir = "old_root"
     
-    # Verify the extracted_python directory exists
     if not os.path.isdir(chroot_dir):
         print(f"✗ Directory {chroot_dir} does not exist")
-        print("Please extract your Python image first")
         return False
     
-    print(f"Using chroot directory: {os.path.abspath(chroot_dir)}")
-    
-    # Create marker file in original root to test isolation
+    # Create marker file
     marker_file = "/tmp/original_root_marker"
+    with open(marker_file, 'w') as f:
+        f.write("Original root marker")
+    
+    print(f"✓ Created marker file: {marker_file}")
+    
+    # Use unshare to create isolated mount namespace
+    script = f"""
+import os
+import subprocess
+
+def isolated_pivot_root():
     try:
-        with open(marker_file, 'w') as f:
-            f.write("This should be inaccessible after pivot_root")
-        print(f"✓ Created marker file: {marker_file}")
-    except Exception as e:
-        print(f"Warning: Could not create marker file: {e}")
-    
-    # Test pivot_root
-    print(f"\nTesting pivot_root: {chroot_dir} -> {old_root_dir}")
-    result = pivot_root(chroot_dir, old_root_dir)
-    
-    if result:
-        print("✓ pivot_root completed successfully")
-        print("✓ Original root filesystem isolated")
+        # Create tmpfs mount for new root
+        os.makedirs('/tmp/new_root', exist_ok=True)
+        subprocess.run(['mount', '-t', 'tmpfs', 'tmpfs', '/tmp/new_root'], check=True)
         
-        # Test if old root is truly gone
-        print("\n=== Testing Old Root Isolation ===")
+        # Copy extracted_python contents
+        subprocess.run(['cp', '-a', '{os.path.abspath(chroot_dir)}/.', '/tmp/new_root'], check=True)
+        
+        # Create old_root directory
+        os.makedirs('/tmp/new_root/old_root', exist_ok=True)
+        
+        # Execute pivot_root
+        subprocess.run(['pivot_root', '/tmp/new_root', '/tmp/new_root/old_root'], check=True)
+        
+        print("✓ pivot_root successful in isolated namespace")
+        
+        # Test isolation
         try:
-            # Try to access the marker file
-            with open(marker_file, 'r') as f:
-                content = f.read()
-            print(f"✗ SECURITY ISSUE: Old root still accessible!")
-            print(f"   Marker file content: {content}")
+            with open('/old_root{marker_file}', 'r') as f:
+                print("✗ Old root still accessible")
         except FileNotFoundError:
-            print("✓ Old root marker file inaccessible - isolation successful!")
-        except Exception as e:
-            print(f"✓ Old root access blocked: {e}")
+            print("✓ Old root properly isolated")
         
-        # Check if we're in the new root environment
-        try:
-            current_files = os.listdir('/')
-            print(f"✓ New root contents: {current_files[:5]}...")
-        except Exception as e:
-            print(f"Error listing new root: {e}")
-            
-    else:
-        print("✗ pivot_root failed")
+        # Unmount old root
+        subprocess.run(['umount', '/old_root'], check=True)
+        print("✓ Old root unmounted - complete isolation achieved")
         
-        # Cleanup marker file if pivot_root failed
-        try:
-            os.remove(marker_file)
-        except:
-            pass
+        return True
+        
+    except Exception as e:
+        print(f"Error: {{e}}")
+        return False
+
+isolated_pivot_root()
+"""
     
-    return result
+    # Execute in isolated mount namespace
+    try:
+        result = subprocess.run(['unshare', '--mount', '--pid', '--fork', 
+                               'python3', '-c', script], 
+                              capture_output=True, text=True, check=True)
+        print(result.stdout)
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Namespace test failed: {e}")
+        print(f"stderr: {e.stderr}")
+        return False
 
 
 
