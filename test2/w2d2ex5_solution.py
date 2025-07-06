@@ -88,7 +88,7 @@ def setup_bridge_network():
     Set up the bridge network for containers
     Creates bridge0 with 10.0.0.1/24 and configures iptables
     """
-    print("🔧 DEBUG: Setting up bridge network...")
+   #  print("🔧 DEBUG: Setting up bridge network...")
     
     # Check if running as root
     if os.geteuid() != 0:
@@ -98,7 +98,7 @@ def setup_bridge_network():
     if "SOLUTION":
         try:
             # Check if bridge already exists
-            print("🔧 DEBUG: Checking if bridge0 already exists...")
+           #  print("🔧 DEBUG: Checking if bridge0 already exists...")
             bridge_check = subprocess.run(['ip', 'link', 'show', 'bridge0'], 
                                         capture_output=True, text=True)
             if bridge_check.returncode == 0:
@@ -113,38 +113,38 @@ def setup_bridge_network():
                     print("⚠ Bridge0 exists but needs reconfiguration")
             
             # Enable IP forwarding
-            print("🔧 DEBUG: Enabling IP forwarding...")
+           #  print("🔧 DEBUG: Enabling IP forwarding...")
             result = subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], 
                                   capture_output=True, text=True, check=True)
             print(f"✓ Enabled IP forwarding: {result.stdout.strip()}")
             
             # Remove existing bridge if it exists
-            print("🔧 DEBUG: Removing existing bridge0 if present...")
+           #  print("🔧 DEBUG: Removing existing bridge0 if present...")
             subprocess.run(['ip', 'link', 'del', 'bridge0'], 
                           capture_output=True, text=True)
             
             # Create and configure bridge
-            print("🔧 DEBUG: Creating bridge0...")
+           #  print("🔧 DEBUG: Creating bridge0...")
             subprocess.run(['ip', 'link', 'add', 'bridge0', 'type', 'bridge'], check=True)
             print("✓ Created bridge0")
             
-            print("🔧 DEBUG: Configuring bridge0 IP...")
+           #  print("🔧 DEBUG: Configuring bridge0 IP...")
             subprocess.run(['ip', 'addr', 'add', '10.0.0.1/24', 'dev', 'bridge0'], check=True)
             print("✓ Added IP 10.0.0.1/24 to bridge0")
             
-            print("🔧 DEBUG: Bringing bridge0 up...")
+           #  print("🔧 DEBUG: Bringing bridge0 up...")
             subprocess.run(['ip', 'link', 'set', 'bridge0', 'up'], check=True)
             print("✓ Bridge0 is up")
             
             # Get default network interface
-            print("🔧 DEBUG: Finding default network interface...")
+           #  print("🔧 DEBUG: Finding default network interface...")
             route_result = subprocess.run(['ip', 'route', 'show', 'default'], 
                                         capture_output=True, text=True, check=True)
             default_iface = route_result.stdout.split()[4]
             print(f"✓ Detected default interface: {default_iface}")
             
             # Clear existing iptables rules
-            print("🔧 DEBUG: Clearing existing iptables rules...")
+           #  print("🔧 DEBUG: Clearing existing iptables rules...")
             subprocess.run(['iptables', '-F'], check=True)
             subprocess.run(['iptables', '-t', 'nat', '-F'], check=True)
             subprocess.run(['iptables', '-t', 'mangle', '-F'], check=True)
@@ -152,19 +152,19 @@ def setup_bridge_network():
             print("✓ Cleared existing iptables rules")
             
             # Set default policies
-            print("🔧 DEBUG: Setting iptables default policies...")
+           #  print("🔧 DEBUG: Setting iptables default policies...")
             subprocess.run(['iptables', '-P', 'FORWARD', 'ACCEPT'], check=True)
             subprocess.run(['iptables', '-P', 'INPUT', 'ACCEPT'], check=True)
             subprocess.run(['iptables', '-P', 'OUTPUT', 'ACCEPT'], check=True)
             print("✓ Set default policies to ACCEPT")
             
             # Add iptables rules for NAT and forwarding
-            print("🔧 DEBUG: Adding iptables NAT rules...")
+           #  print("🔧 DEBUG: Adding iptables NAT rules...")
             subprocess.run(['iptables', '-t', 'nat', '-A', 'POSTROUTING', '-s', '10.0.0.0/24', 
                            '!', '-o', 'bridge0', '-j', 'MASQUERADE'], check=True)
             print("✓ Added NAT rule for 10.0.0.0/24")
             
-            print("🔧 DEBUG: Adding iptables forwarding rules...")
+           #  print("🔧 DEBUG: Adding iptables forwarding rules...")
             subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', default_iface, '-j', 'ACCEPT'], check=True)
             subprocess.run(['iptables', '-A', 'FORWARD', '-i', default_iface, '-o', 'bridge0', 
                            '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], check=True)
@@ -261,36 +261,36 @@ def create_container_network(container_id, ip_suffix):
             netns_name = f"netns_{short_id}"
             container_ip = f"10.0.0.{ip_suffix}"
             
-            print(f"🔧 DEBUG: Creating interfaces:")
+            # print(f"🔧 DEBUG: Creating interfaces:")
             print(f"   Host interface: {veth_host}")
             print(f"   Container interface: {veth_container}")
             print(f"   Namespace: {netns_name}")
             print(f"   Container IP: {container_ip}")
             
             # Create veth pair
-            print(f"🔧 DEBUG: Creating veth pair...")
+            # print(f"🔧 DEBUG: Creating veth pair...")
             subprocess.run(['ip', 'link', 'add', 'dev', veth_host, 'type', 'veth', 
                             'peer', 'name', veth_container], check=True)
             print(f"✓ Created veth pair: {veth_host} <-> {veth_container}")
             
             # Attach host end to bridge
-            print(f"🔧 DEBUG: Attaching {veth_host} to bridge...")
+            # print(f"🔧 DEBUG: Attaching {veth_host} to bridge...")
             subprocess.run(['ip', 'link', 'set', 'dev', veth_host, 'up'], check=True)
             subprocess.run(['ip', 'link', 'set', veth_host, 'master', 'bridge0'], check=True)
             print(f"✓ Attached {veth_host} to bridge0")
             
             # Create network namespace
-            print(f"🔧 DEBUG: Creating network namespace {netns_name}...")
+            # print(f"🔧 DEBUG: Creating network namespace {netns_name}...")
             subprocess.run(['ip', 'netns', 'add', netns_name], check=True)
             print(f"✓ Created namespace: {netns_name}")
             
             # Move container end to namespace
-            print(f"🔧 DEBUG: Moving {veth_container} to namespace...")
+            # print(f"🔧 DEBUG: Moving {veth_container} to namespace...")
             subprocess.run(['ip', 'link', 'set', veth_container, 'netns', netns_name], check=True)
             print(f"✓ Moved {veth_container} to {netns_name}")
             
             # Configure container network interface
-            print(f"🔧 DEBUG: Configuring container interface...")
+            # print(f"🔧 DEBUG: Configuring container interface...")
             subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 'dev', 'lo', 'up'], check=True)
             subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'add', 
                             f'{container_ip}/24', 'dev', veth_container], check=True)
@@ -299,7 +299,7 @@ def create_container_network(container_id, ip_suffix):
             print(f"✓ Configured {veth_container} with IP {container_ip}/24")
             
             # Add default route
-            print(f"🔧 DEBUG: Adding default route...")
+            # print(f"🔧 DEBUG: Adding default route...")
             subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'route', 'add', 
                             'default', 'via', '10.0.0.1'], check=True)
             print(f"✓ Added default route via 10.0.0.1")
@@ -319,22 +319,22 @@ def create_container_network(container_id, ip_suffix):
             short_id = container_id[-8:]
             netns_name = f"isolated_{short_id}"
             
-            print(f"🔧 DEBUG: Creating isolated namespace:")
+            # print(f"🔧 DEBUG: Creating isolated namespace:")
             print(f"   Namespace: {netns_name}")
             print(f"   Container ID: {container_id}")
             
             # Create network namespace
-            print(f"🔧 DEBUG: Creating network namespace {netns_name}...")
+            # print(f"🔧 DEBUG: Creating network namespace {netns_name}...")
             subprocess.run(['ip', 'netns', 'add', netns_name], check=True)
             print(f"✓ Created isolated namespace: {netns_name}")
             
             # Configure only loopback interface (no external connectivity)
-            print(f"🔧 DEBUG: Configuring loopback interface...")
+            # print(f"🔧 DEBUG: Configuring loopback interface...")
             subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 'dev', 'lo', 'up'], check=True)
             print(f"✓ Configured loopback interface in {netns_name}")
             
             # Test that the namespace is isolated (should only have loopback)
-            print(f"🔧 DEBUG: Verifying network isolation...")
+            # print(f"🔧 DEBUG: Verifying network isolation...")
             result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'show'], 
                                 capture_output=True, text=True, check=True)
             
@@ -346,7 +346,7 @@ def create_container_network(container_id, ip_suffix):
                 print(f"⚠ Warning: Expected 1 interface (loopback), found {interfaces}")
             
             # Test that external connectivity is blocked
-            print(f"🔧 DEBUG: Testing network isolation...")
+            # print(f"🔧 DEBUG: Testing network isolation...")
             ping_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '-W', '1', '8.8.8.8'], 
                                     capture_output=True, text=True)
             if ping_test.returncode != 0:
@@ -355,7 +355,7 @@ def create_container_network(container_id, ip_suffix):
                 print(f"⚠ Warning: Network isolation may not be working - external ping succeeded")
             
             # Test loopback connectivity
-            print(f"🔧 DEBUG: Testing loopback connectivity...")
+            # print(f"🔧 DEBUG: Testing loopback connectivity...")
             loopback_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '127.0.0.1'], 
                                         capture_output=True, text=True)
             if loopback_test.returncode == 0:
@@ -396,7 +396,7 @@ def cleanup_container_network(container_id):
             veth_host = f"veth0_{short_id}"
             netns_name = f"netns_{short_id}"
             
-            print(f"🔧 DEBUG: Cleaning up network for container {container_id}")
+            # print(f"🔧 DEBUG: Cleaning up network for container {container_id}")
             
             # Remove network namespace
             subprocess.run(['ip', 'netns', 'del', netns_name], capture_output=True, text=True)
@@ -414,12 +414,12 @@ def cleanup_container_network(container_id):
             short_id = container_id[-8:]
             netns_name = f"isolated_{short_id}"
             
-            print(f"🔧 DEBUG: Cleaning up isolated namespace for container {container_id}")
+            # print(f"🔧 DEBUG: Cleaning up isolated namespace for container {container_id}")
             print(f"   Short ID: {short_id}")
             print(f"   Namespace: {netns_name}")
             
             # Remove network namespace
-            print(f"🔧 DEBUG: Removing network namespace {netns_name}...")
+            # print(f"🔧 DEBUG: Removing network namespace {netns_name}...")
             result = subprocess.run(['ip', 'netns', 'del', netns_name], 
                                 capture_output=True, text=True)
             if result.returncode == 0:
@@ -511,12 +511,12 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
     container_id = f"{container_name}_{str(uuid.uuid4())[:8]}"
     ip_suffix = hash(container_id) % 200 + 50  # IP range 10.0.0.50-249
     
-    print(f"🔧 DEBUG: Creating networked container: {container_id}")
-    print(f"🔧 DEBUG: IP suffix: {ip_suffix}")
+    # print(f"🔧 DEBUG: Creating networked container: {container_id}")
+    # print(f"🔧 DEBUG: IP suffix: {ip_suffix}")
     
     if "SOLUTION":
         # Set up DNS for chroot environment
-        print(f"🔧 DEBUG: Setting up DNS in chroot environment...")
+        # print(f"🔧 DEBUG: Setting up DNS in chroot environment...")
         try:
             chroot_etc_dir = os.path.join(chroot_dir, 'etc')
             os.makedirs(chroot_etc_dir, exist_ok=True)
@@ -553,12 +553,12 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
                 exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
                            '--pid', '--mount', '--uts', '--ipc', '--fork', 
                            'chroot', chroot_dir] + command
-                print(f"🔧 DEBUG: Executing with network namespace: {netns_name}")
+                # print(f"🔧 DEBUG: Executing with network namespace: {netns_name}")
             else:
                 # Execute without network namespace
                 exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', '--fork', 
                            'chroot', chroot_dir] + command
-                print(f"🔧 DEBUG: Executing without network namespace")
+                # print(f"🔧 DEBUG: Executing without network namespace")
             
             print(f"\n🚀 STARTING CONTAINER {container_id}")
             print("="*60)
@@ -586,7 +586,7 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
             
             print("="*60)
             print(f"🏁 CONTAINER {container_id} COMPLETED")
-            print(f"🔧 DEBUG: Container exit code: {exit_code}")
+            # print(f"🔧 DEBUG: Container exit code: {exit_code}")
             
             # Cleanup
             if netns_name:
