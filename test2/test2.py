@@ -232,7 +232,7 @@ def pivot_root(new_root, old_root_mountpoint):
     Implement pivot_root for proper filesystem isolation
     
     Args:
-        new_root: Path to the new root filesystem
+        new_root: Path to the new root filesystem (e.g., './extracted_python')
         old_root_mountpoint: Where to mount the old root within new_root
     
     Returns:
@@ -242,57 +242,123 @@ def pivot_root(new_root, old_root_mountpoint):
     import subprocess
     
     try:
-        # Mount new root and create old root directory
+        # Check if running as root
+        if os.geteuid() != 0:
+            print("Error: pivot_root requires root privileges")
+            return False
+        
+        # Convert to absolute path
+        new_root = os.path.abspath(new_root)
+        
+        # Ensure new_root exists and is a directory
+        if not os.path.isdir(new_root):
+            print(f"Error: {new_root} is not a valid directory")
+            return False
+        
+        # Make new_root a mount point
         subprocess.run(['mount', '--bind', new_root, new_root], check=True)
+        
+        # Create old root directory inside new root
         old_root_path = os.path.join(new_root, old_root_mountpoint.lstrip('/'))
         os.makedirs(old_root_path, exist_ok=True)
         
-        # Execute pivot_root system call
+        # Execute pivot_root
         subprocess.run(['pivot_root', new_root, old_root_path], check=True)
         
-        # Optionally unmount old root for complete isolation
+        # Change to new root
+        os.chdir('/')
+        
+        # Unmount old root for complete isolation
         subprocess.run(['umount', f'/{old_root_mountpoint}'], check=True)
         
         return True
         
     except subprocess.CalledProcessError as e:
         print(f"pivot_root failed: {e}")
+        # Clean up bind mount if it exists
+        try:
+            subprocess.run(['umount', new_root], stderr=subprocess.DEVNULL)
+        except:
+            pass
+        return False
+    except Exception as e:
+        print(f"Error: {e}")
         return False
 
 def test_pivot_root():
     """
-    Test pivot_root functionality with actual system call
+    Test pivot_root using the extracted_python directory
     """
     import os
-    import tempfile
-    import shutil
+    import subprocess
     
-    print("=== Testing pivot_root ===")
+    print("=== Testing pivot_root with extracted_python ===")
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        new_root = os.path.join(temp_dir, "new_root")
-        old_root_dir = "old_root"
+    # Check privileges first
+    if os.geteuid() != 0:
+        print("✗ Test requires root privileges")
+        print("Run with: sudo python3 script.py")
+        return False
+    
+    chroot_dir = "./extracted_python"
+    old_root_dir = "old_root"
+    
+    # Verify the extracted_python directory exists
+    if not os.path.isdir(chroot_dir):
+        print(f"✗ Directory {chroot_dir} does not exist")
+        print("Please extract your Python image first")
+        return False
+    
+    print(f"Using chroot directory: {os.path.abspath(chroot_dir)}")
+    
+    # Create marker file in original root to test isolation
+    marker_file = "/tmp/original_root_marker"
+    try:
+        with open(marker_file, 'w') as f:
+            f.write("This should be inaccessible after pivot_root")
+        print(f"✓ Created marker file: {marker_file}")
+    except Exception as e:
+        print(f"Warning: Could not create marker file: {e}")
+    
+    # Test pivot_root
+    print(f"\nTesting pivot_root: {chroot_dir} -> {old_root_dir}")
+    result = pivot_root(chroot_dir, old_root_dir)
+    
+    if result:
+        print("✓ pivot_root completed successfully")
+        print("✓ Original root filesystem isolated")
         
-        # Setup test environment
-        os.makedirs(new_root, exist_ok=True)
-        os.makedirs(os.path.join(new_root, 'bin'), exist_ok=True)
+        # Test if old root is truly gone
+        print("\n=== Testing Old Root Isolation ===")
+        try:
+            # Try to access the marker file
+            with open(marker_file, 'r') as f:
+                content = f.read()
+            print(f"✗ SECURITY ISSUE: Old root still accessible!")
+            print(f"   Marker file content: {content}")
+        except FileNotFoundError:
+            print("✓ Old root marker file inaccessible - isolation successful!")
+        except Exception as e:
+            print(f"✓ Old root access blocked: {e}")
         
-        # Copy essential binary
-        if os.path.exists('/bin/sh'):
-            shutil.copy2('/bin/sh', os.path.join(new_root, 'bin'))
+        # Check if we're in the new root environment
+        try:
+            current_files = os.listdir('/')
+            print(f"✓ New root contents: {current_files[:5]}...")
+        except Exception as e:
+            print(f"Error listing new root: {e}")
+            
+    else:
+        print("✗ pivot_root failed")
         
-        print(f"Testing pivot_root: {new_root} -> {old_root_dir}")
-        
-        # Execute pivot_root
-        result = pivot_root(new_root, old_root_dir)
-        
-        if result:
-            print("✓ pivot_root completed successfully")
-            print("✓ Original root filesystem isolated")
-        else:
-            print("✗ pivot_root failed (requires root privileges)")
-        
-        return result
+        # Cleanup marker file if pivot_root failed
+        try:
+            os.remove(marker_file)
+        except:
+            pass
+    
+    return result
+
 
 
 
