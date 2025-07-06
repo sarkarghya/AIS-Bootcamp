@@ -1317,214 +1317,228 @@ run_networked_container(
     container_name="python_demo"
 )
 
+#!/usr/bin/env python3
+import subprocess
+import threading
+import re
+import signal
+import os
 
+# Dangerous syscalls that could indicate CVE-2024-0137 exploitation
+DANGEROUS_SYSCALLS = {
+    'setns',      # Network namespace manipulation
+    'unshare',    # Namespace creation/modification  
+    'mount',      # Filesystem manipulation
+    'pivot_root', # Root filesystem changes
+    'chroot',     # Root directory changes
+    'clone',      # Process/namespace cloning
+    'socket',     # Network socket creation (monitor for host namespace)
+    'bind',       # Network binding (check for host interfaces)
+    'connect'     # Network connections (monitor for host network)
+}
 
-# def create_isolated_container(cgroup_name, chroot_dir, command=None, memory_limit="100M", container_name="isolated_container"):
-#     """
-#     Create a container with isolated network (no external connectivity)
-#     This is a separate function that creates containers with complete network isolation
-    
-#     Args:
-#         cgroup_name: Name of the cgroup to create/use
-#         chroot_dir: Directory to chroot into  
-#         command: Command to run
-#         memory_limit: Memory limit for the cgroup
-#         container_name: Name for the container
-#     """
-#     import subprocess
-#     import os
-#     import uuid
-    
-#     # Create cgroup
-#     create_cgroup(cgroup_name, memory_limit=memory_limit)
-    
-#     if command is None:
-#         command = ['/bin/sh']
-#     elif isinstance(command, str):
-#         command = ['/bin/sh', '-c', command]
-    
-#     # Generate unique container ID
-#     container_id = f"{container_name}_{str(uuid.uuid4())[:8]}"
-    
-#     print(f"🔧 DEBUG: Creating isolated container: {container_id}")
-#     print(f"🔧 DEBUG: Command: {command}")
-#     print(f"🔧 DEBUG: Memory limit: {memory_limit}")
-    
-#     # Create isolated network namespace
-#     netns_name = create_isolated_network_namespace(container_id)
-    
-#     if not netns_name:
-#         print(f"✗ Failed to create isolated network namespace for container {container_id}")
-#         return None
-    
-#     try:
-#         # Build execution command with isolated network namespace
-#         exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
-#                    '--pid', '--mount', '--uts', '--ipc', '--fork', 
-#                    'chroot', chroot_dir] + command
+def monitor_syscalls(pid, alert_callback):
+    """Monitor syscalls of a process using strace"""
+    try:
+        # Use strace to monitor dangerous syscalls
+        strace_cmd = [
+            'strace', '-f', '-p', str(pid), 
+            '-e', 'trace=' + ','.join(DANGEROUS_SYSCALLS),
+            '-o', '/dev/stderr'  # Output to stderr for real-time monitoring
+        ]
         
-#         print(f"🔧 DEBUG: Command: {exec_args}")
-#         print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
+        process = subprocess.Popen(
+            strace_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
         
-#         print(f"\n🚀 STARTING ISOLATED CONTAINER {container_id}")
-#         print("="*60)
+        # Monitor stderr for syscall output
+        for line in iter(process.stderr.readline, ''):
+            if any(syscall in line for syscall in DANGEROUS_SYSCALLS):
+                alert_callback(line.strip(), pid)
+                
+    except Exception as e:
+        print(f"⚠ Syscall monitor error: {e}")
+
+def alert_handler(syscall_line, pid):
+    """Handle dangerous syscall detection"""
+    print(f"🚨 SECURITY ALERT: Dangerous syscall detected in PID {pid}")
+    print(f"   Syscall: {syscall_line}")
+    
+    # Check for specific CVE-2024-0137 patterns
+    if 'setns' in syscall_line and 'net' in syscall_line:
+        print(f"🔥 CRITICAL: Possible CVE-2024-0137 network namespace escape!")
+        print(f"   Killing container process {pid}")
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except:
+            pass
+
+def run_monitored_container(cgroup_name, chroot_dir="/extracted_alpine", 
+                          command=None, memory_limit="100M", container_name="container"):
+    """
+    Wrapper around run_networked_container with syscall monitoring
+    """
+    import uuid
+    import time
+    
+    # Generate container ID
+    container_id = f"{container_name}_{str(uuid.uuid4())[:8]}"
+    
+    print(f"🔍 Starting monitored container: {container_id}")
+    print(f"🛡️  Monitoring for CVE-2024-0137 exploitation attempts...")
+    
+    # Create the container execution command
+    if command is None:
+        command = ['/bin/sh']
+    elif isinstance(command, str):
+        command = ['/bin/sh', '-c', command]
+    
+    # Build execution args (simplified from your original)
+    exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
+                '--fork', 'chroot', chroot_dir] + command
+    
+    try:
+        # Start the container process
+        print(f"🚀 Executing: {' '.join(exec_args)}")
+        process = subprocess.Popen(
+            exec_args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+        )
         
-#         # Use Popen for real-time output streaming
-#         process = subprocess.Popen(
-#             exec_args,
-#             stdout=subprocess.PIPE,
-#             stderr=subprocess.STDOUT,
-#             universal_newlines=True,
-#             bufsize=1  # Line buffered
-#         )
+        # Start syscall monitoring in a separate thread
+        monitor_thread = threading.Thread(
+            target=monitor_syscalls, 
+            args=(process.pid, alert_handler),
+            daemon=True
+        )
+        monitor_thread.start()
         
-#         # Stream output in real-time
-#         if process.stdout:
-#             while True:
-#                 output = process.stdout.readline()
-#                 if output == '' and process.poll() is not None:
-#                     break
-#                 if output:
-#                     print(output.strip())
+        print(f"🔍 Syscall monitoring active for PID {process.pid}")
         
-#         # Wait for process to complete
-#         exit_code = process.wait()
+        # Stream container output while monitoring
+        try:
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    print(f"[CONTAINER] {line.strip()}")
+        except KeyboardInterrupt:
+            print(f"\n🛑 Stopping container {container_id}")
+            process.terminate()
         
-#         print("="*60)
-#         print(f"🏁 ISOLATED CONTAINER {container_id} COMPLETED")
-#         print(f"🔧 DEBUG: Container exit code: {exit_code}")
+        # Wait for process completion
+        exit_code = process.wait()
+        print(f"🏁 Container {container_id} exited with code: {exit_code}")
         
-#         # Cleanup
-#         cleanup_isolated_network_namespace(container_id)
+        return exit_code
         
-#         return exit_code
-        
-#     except Exception as e:
-#         print(f"✗ Error running isolated container: {e}")
-#         import traceback
-#         traceback.print_exc()
-#         cleanup_isolated_network_namespace(container_id)
-#         return None
+    except Exception as e:
+        print(f"❌ Container execution error: {e}")
+        return -1
 
-
-# def test_networked_vs_isolated():
-#     """
-#     Test function to compare networked vs isolated containers
-#     """
-#     print("\n" + "="*70)
-#     print("COMPARING NETWORKED VS ISOLATED CONTAINERS")
-#     print("="*70)
+# Test functions for rogue syscalls
+def test_rogue_network_escape():
+    """Test that simulates CVE-2024-0137 network namespace escape"""
+    print("\n" + "="*60)
+    print("🧪 TESTING: Rogue network namespace escape (CVE-2024-0137)")
+    print("="*60)
     
-#     # Test script that tries to access external network
-#     test_script = '''
-# echo "=== Container Network Test ==="
-# echo "1. Testing loopback connectivity:"
-# ping -c 1 127.0.0.1 || echo "   ✗ Loopback failed"
-
-# echo "2. Testing external connectivity (should fail in isolated):"
-# ping -c 1 -W 2 8.8.8.8 || echo "   ✗ External network unreachable"
-
-# echo "3. Checking network interfaces:"
-# if command -v ip >/dev/null 2>&1; then
-#     ip addr show | grep "inet " | wc -l
-# else
-#     echo "   ip command not available"
-# fi
-
-# echo "4. Testing DNS resolution (should fail in isolated):"
-# if command -v nslookup >/dev/null 2>&1; then
-#     nslookup google.com || echo "   ✗ DNS resolution failed"
-# else
-#     echo "   nslookup not available"
-# fi
-
-# echo "=== Test Complete ==="
-# '''
+    rogue_command = """
+    echo "Attempting network namespace escape..."
+    # Simulate CVE-2024-0137 exploitation attempt
+    python3 -c "
+import os
+import subprocess
+print('Container attempting to escape network namespace...')
+try:
+    # This would trigger our monitor
+    subprocess.run(['unshare', '--net', '/bin/sh', '-c', 'echo namespace escape attempt'], timeout=1)
+except:
+    pass
+print('Rogue syscall test completed')
+"
+    """
     
-#     print("\n1. Testing NETWORKED container (should have internet access):")
-#     print("-" * 50)
-#     run_networked_container(
-#         cgroup_name="test_networked",
-#         chroot_dir="./extracted_python",
-#         command=test_script,
-#         memory_limit="50M",
-#         container_name="networked_test"
-#     )
+    return run_monitored_container(
+        cgroup_name="rogue_test",
+        chroot_dir="./extracted_python",  # Use Python container for testing
+        command=rogue_command,
+        memory_limit="50M",
+        container_name="rogue_test"
+    )
+
+def test_normal_container():
+    """Test normal container behavior"""
+    print("\n" + "="*60)
+    print("✅ TESTING: Normal container behavior")
+    print("="*60)
     
-#     print("\n2. Testing ISOLATED container (should have NO internet access):")
-#     print("-" * 50)
-#     create_isolated_container(
-#         cgroup_name="test_isolated", 
-#         chroot_dir="./extracted_python",
-#         command=test_script,
-#         memory_limit="50M",
-#         container_name="isolated_test"
-#     )
+    normal_command = """
+    echo "Normal container operations..."
+    python3 -c "
+import os
+print(f'Container PID: {os.getpid()}')
+print('Performing normal operations...')
+print('Container completed successfully')
+"
+    """
     
-#     print("\n" + "="*70)
-#     print("COMPARISON COMPLETE")
-#     print("Expected results:")
-#     print("- Networked container: External ping and DNS should work")
-#     print("- Isolated container: Only loopback should work, external should fail")
-#     print("="*70)
+    return run_monitored_container(
+        cgroup_name="normal_test",
+        chroot_dir="./extracted_python",
+        command=normal_command,
+        memory_limit="50M", 
+        container_name="normal_test"
+    )
 
-
-# # %% Test isolated networking functionality
-# print("\n" + "="*50)
-# print("TESTING ISOLATED NETWORK NAMESPACE")
-# print("="*50)
-
-# print("Creating an isolated network namespace and testing its functionality:")
-
-# # Test the isolated network namespace creation directly
-# import uuid
-# test_container_id = f"test_isolated_{str(uuid.uuid4())[:8]}"
-# print(f"\nTesting isolated network namespace creation with container ID: {test_container_id}")
-
-# # Create isolated namespace
-# netns_name = create_isolated_network_namespace(test_container_id)
-# if netns_name:
-#     print(f"✓ Successfully created isolated namespace: {netns_name}")
+def test_file_access_attempt():
+    """Test unauthorized file access attempts"""
+    print("\n" + "="*60)
+    print("🧪 TESTING: Unauthorized file access")
+    print("="*60)
     
-#     # Test network commands in the isolated namespace
-#     print("\nTesting network commands in isolated namespace:")
-#     import subprocess
+    file_attack_command = """
+    echo "Attempting unauthorized file access..."
+    python3 -c "
+import subprocess
+print('Attempting to access host files...')
+try:
+    # These operations might trigger mount/chroot syscalls
+    subprocess.run(['mount', '--help'], timeout=1, capture_output=True)
+    subprocess.run(['chroot', '--help'], timeout=1, capture_output=True)
+except:
+    pass
+print('File access test completed')
+"
+    """
     
-#     # Test interface listing
-#     print("1. Available network interfaces:")
-#     result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'show'], 
-#                           capture_output=True, text=True)
-#     if result.returncode == 0:
-#         print(result.stdout)
+    return run_monitored_container(
+        cgroup_name="file_test",
+        chroot_dir="./extracted_python",
+        command=file_attack_command,
+        memory_limit="50M",
+        container_name="file_test"
+    )
+
+# Main execution and testing
+if __name__ == "__main__":
+    print("🛡️  CVE-2024-0137 Syscall Monitor - Container Antivirus")
+    print("=" * 60)
     
-#     # Test ping to external (should fail)
-#     print("2. Testing external ping (should fail):")
-#     result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '8.8.8.8'], 
-#                           capture_output=True, text=True)
-#     if result.returncode != 0:
-#         print("✓ External ping failed as expected (network is isolated)")
-#     else:
-#         print("⚠ External ping succeeded - isolation may not be working")
+    # Run tests
+    print("Running security tests...")
     
-#     # Test loopback ping (should work)
-#     print("3. Testing loopback ping (should work):")
-#     result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '127.0.0.1'], 
-#                           capture_output=True, text=True)
-#     if result.returncode == 0:
-#         print("✓ Loopback ping succeeded")
-#     else:
-#         print("⚠ Loopback ping failed")
+    # Test 1: Normal behavior (should pass)
+    test_normal_container()
     
-#     # Cleanup
-#     cleanup_isolated_network_namespace(test_container_id)
-#     print(f"✓ Cleaned up test namespace")
-
-# # %% Test complete container comparison
-# print("\n" + "="*50)
-# print("TESTING CONTAINER NETWORK COMPARISON")
-# print("="*50)
-
-# print("Running side-by-side comparison of networked vs isolated containers:")
-# test_networked_vs_isolated()
-
-
+    # Test 2: Rogue network escape (should trigger alerts)
+    test_rogue_network_escape()
+    
+    # Test 3: File access attempts (should trigger alerts)
+    test_file_access_attempt()
+    
+    print("\n🎯 All tests completed!")
+    print("🔍 Check output above for security alerts and blocked attempts")
