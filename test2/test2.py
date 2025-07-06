@@ -287,7 +287,7 @@ def pivot_root(new_root, old_root_mountpoint):
         print(f"Error: {e}")
         return False
 
-def test_pivot_root_with_namespace():
+def test_pivot_root():
     """
     Test pivot_root using mount namespaces for proper isolation
     """
