@@ -322,11 +322,6 @@ import time
 print('Starting memory allocation test...')
 print('Process PID:', os.getpid())
 
-# data = []
-# for i in range(100):
-#     data.append('x' * 10 * 1024 * 1024)
-#     print('Allocated ' + str((i+1)*10) + 'MB', flush=True)
-
 import random
 data = []
 for i in range(99):
