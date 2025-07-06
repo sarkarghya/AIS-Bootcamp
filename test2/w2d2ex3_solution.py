@@ -539,6 +539,43 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         except Exception as e:
             print(f"Warning: Could not set OOM group: {e}")
         
+        # Add current process to cgroup and set up OOM score adjustment
+        try:
+            # Add process to cgroup
+            cgroup_procs_path = f"{cgroup_path}/cgroup.procs"
+            with open(cgroup_procs_path, "w") as f:
+                f.write(str(os.getpid()))
+            print(f"✓ Added current process to cgroup")
+            
+            # Set oom_score_adj to make this process more likely to be killed
+            with open("/proc/self/oom_score_adj", "w") as f:
+                f.write("1000")
+            print("✓ Set OOM score adjustment to 1000")
+            
+            # Verify we're in the cgroup
+            with open("/proc/self/cgroup", "r") as f:
+                cgroup_info = f.read()
+            if cgroup_name in cgroup_info:
+                print(f"✓ Process confirmed in cgroup: {cgroup_name}")
+            else:
+                print(f"⚠ Process may not be in cgroup: {cgroup_name}")
+            
+            # Verify memory limits
+            if os.path.exists(memory_max_path):
+                with open(memory_max_path, "r") as f:
+                    memory_max = f.read().strip()
+                print(f"✓ Memory limit confirmed: {memory_max}")
+                
+                # Check memory.high if it exists
+                memory_high_path = f"{cgroup_path}/memory.high"
+                if os.path.exists(memory_high_path):
+                    with open(memory_high_path, "r") as f:
+                        memory_high = f.read().strip()
+                    print(f"✓ Memory high: {memory_high}")
+                
+        except Exception as e:
+            print(f"Warning: Could not fully configure process in cgroup: {e}")
+        
         return cgroup_path
     else:
         # TODO: Implement complete comprehensive cgroup creation
