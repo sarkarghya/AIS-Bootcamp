@@ -1338,13 +1338,15 @@ DANGEROUS_SYSCALLS = {
 }
 
 def monitor_syscalls(pid, alert_callback):
-    """Monitor syscalls of a process using strace"""
+    """Monitor syscalls of a process and ALL its children using strace"""
     try:
-        # Use strace to monitor dangerous syscalls
+        # CRITICAL FIX: Add -f flag to follow child processes
         strace_cmd = [
-            'strace', '-f', '-p', str(pid), 
+            'strace', 
+            '-f',           # Follow child processes (ESSENTIAL!)
+            '-p', str(pid), 
             '-e', 'trace=' + ','.join(DANGEROUS_SYSCALLS),
-            '-o', '/dev/stderr'  # Output to stderr for real-time monitoring
+            '-o', '/dev/stderr'
         ]
         
         process = subprocess.Popen(
@@ -1357,22 +1359,37 @@ def monitor_syscalls(pid, alert_callback):
         # Monitor stderr for syscall output
         for line in iter(process.stderr.readline, ''):
             if any(syscall in line for syscall in DANGEROUS_SYSCALLS):
-                alert_callback(line.strip(), pid)
+                # Extract PID from strace output format: [pid 12345] syscall(...)
+                pid_match = re.search(r'\[pid (\d+)\]', line)
+                detected_pid = pid_match.group(1) if pid_match else str(pid)
+                alert_callback(line.strip(), detected_pid)
                 
     except Exception as e:
         print(f"⚠ Syscall monitor error: {e}")
 
-def alert_handler(syscall_line, pid):
-    """Handle dangerous syscall detection"""
-    print(f"🚨 SECURITY ALERT: Dangerous syscall detected in PID {pid}")
+def alert_handler(syscall_line, detected_pid):
+    """Enhanced alert handler that can kill specific child processes"""
+    print(f"🚨 SECURITY ALERT: Dangerous syscall detected in PID {detected_pid}")
     print(f"   Syscall: {syscall_line}")
     
     # Check for specific CVE-2024-0137 patterns
-    if 'setns' in syscall_line and 'net' in syscall_line:
-        print(f"🔥 CRITICAL: Possible CVE-2024-0137 network namespace escape!")
-        print(f"   Killing container process {pid}")
+    if 'unshare' in syscall_line and ('CLONE_NEWNET' in syscall_line or '--net' in syscall_line):
+        print(f"🔥 CRITICAL: CVE-2024-0137 network namespace escape detected!")
+        print(f"   Killing malicious process {detected_pid}")
         try:
-            os.kill(pid, signal.SIGKILL)
+            os.kill(int(detected_pid), signal.SIGKILL)
+        except:
+            # If we can't kill the specific PID, kill the entire process group
+            try:
+                os.killpg(int(detected_pid), signal.SIGKILL)
+            except:
+                pass
+    
+    if 'setns' in syscall_line:
+        print(f"🔥 CRITICAL: Direct namespace manipulation detected!")
+        print(f"   Killing process {detected_pid}")
+        try:
+            os.kill(int(detected_pid), signal.SIGKILL)
         except:
             pass
 
