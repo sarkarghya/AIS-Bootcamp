@@ -1228,8 +1228,8 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
     # Create container network
     netns_name = None
     if bridge_ready:
-        # netns_name = create_container_network(container_id, ip_suffix)
-        netns_name = create_isolated_network_namespace(container_id)
+        netns_name = create_container_network(container_id, ip_suffix)
+        # netns_name = create_isolated_network_namespace(container_id)
         if netns_name:
             print(f"✓ Container {container_id} assigned IP: 10.0.0.{ip_suffix}/24")
         else:
@@ -1287,8 +1287,8 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
         
         # Cleanup
         if netns_name:
-            # cleanup_container_network(container_id)
-            cleanup_isolated_network_namespace(container_id)
+            cleanup_container_network(container_id)
+            # cleanup_isolated_network_namespace(container_id)
         
         return exit_code
         
@@ -1297,8 +1297,8 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
         import traceback
         traceback.print_exc()
         if netns_name:
-            # cleanup_container_network(container_id)
-            cleanup_isolated_network_namespace(container_id)
+            cleanup_container_network(container_id)
+            # cleanup_isolated_network_namespace(container_id)
         return None
 
 
