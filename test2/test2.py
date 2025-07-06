@@ -756,7 +756,7 @@ def setup_bridge_network():
         # Remove existing bridge if it exists
         print("🔧 DEBUG: Removing existing bridge0 if present...")
         subprocess.run(['ip', 'link', 'del', 'bridge0'], 
-                      capture_output=True, text=True, stderr=subprocess.DEVNULL)
+                      capture_output=True, text=True)
         
         # Create and configure bridge
         print("🔧 DEBUG: Creating bridge0...")
@@ -1112,9 +1112,17 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
     
     try:
         # Build execution command
-        exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
-                    '--fork', 'chroot', chroot_dir] + command
-        print(f"🔧 DEBUG: Executing with isolated network")
+        if netns_name:
+            # Execute with dedicated network namespace
+            exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
+                       '--pid', '--mount', '--uts', '--ipc', '--fork', 
+                       'chroot', chroot_dir] + command
+            print(f"🔧 DEBUG: Executing with network namespace: {netns_name}")
+        else:
+            # Execute with isolated network namespace (no internet)
+            exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
+                       '--fork', 'chroot', chroot_dir] + command
+            print(f"🔧 DEBUG: Executing with isolated network")
         
         print(f"🔧 DEBUG: Command: {exec_args}")
         print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
@@ -1140,12 +1148,13 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
         )
         
         # Stream output in real-time
-        while True:
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                print(output.strip())
+        if process.stdout:
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    print(output.strip())
         
         # Wait for process to complete
         exit_code = process.wait()
