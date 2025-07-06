@@ -708,5 +708,5 @@ Remember: Understanding container internals is crucial for building secure, effi
 
 # %%
 # Example usage - uncomment to test with real images
-# pull_layers("alpine:latest", "./extracted_alpine")
-# pull_layers("python:3.12-alpine", "./extracted_python") 
+pull_layers("alpine:latest", "./extracted_alpine")
+pull_layers("python:3.12-alpine", "./extracted_python") 
