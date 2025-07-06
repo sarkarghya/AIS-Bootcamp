@@ -66,39 +66,34 @@ def create_cgroup(cgroup_name, memory_limit=None):
 
 # %%
 """
-## Exercise 5.1: Bridge Network Setup
+## Exercise 5.1a: Bridge Interface Creation
 
 A bridge network acts as a software switch that connects multiple network interfaces. 
-This is the foundation of container networking - all containers connect to the bridge, 
-and the bridge provides connectivity between containers and to the outside world.
+The first step is creating the bridge interface itself and configuring it with an IP address.
 
-### Exercise - implement setup_bridge_network
+### Exercise - implement create_bridge_interface
 
-> **Difficulty**: 🔴🔴🔴🔴⚪  
+> **Difficulty**: 🔴🔴🔴⚪⚪  
 > **Importance**: 🔵🔵🔵🔵🔵
 > 
-> You should spend up to ~20 minutes on this exercise.
+> You should spend up to ~10 minutes on this exercise.
 
-Implement the bridge network setup function that creates a bridge interface with proper routing and NAT rules.
+Implement the bridge interface creation function that creates and configures bridge0.
 """
 
 
-def setup_bridge_network():
+def create_bridge_interface():
     """
-    Set up the bridge network for containers
-    Creates bridge0 with 10.0.0.1/24 and configures iptables
+    Create and configure bridge0 interface with IP address
     """
-   #  print("🔧 DEBUG: Setting up bridge network...")
-    
     # Check if running as root
     if os.geteuid() != 0:
-        print("⚠ Warning: Bridge network setup requires root privileges")
+        print("⚠ Warning: Bridge interface creation requires root privileges")
         return False
     
     if "SOLUTION":
         try:
             # Check if bridge already exists
-           #  print("🔧 DEBUG: Checking if bridge0 already exists...")
             bridge_check = subprocess.run(['ip', 'link', 'show', 'bridge0'], 
                                         capture_output=True, text=True)
             if bridge_check.returncode == 0:
@@ -112,91 +107,45 @@ def setup_bridge_network():
                 else:
                     print("⚠ Bridge0 exists but needs reconfiguration")
             
-            # Enable IP forwarding
-           #  print("🔧 DEBUG: Enabling IP forwarding...")
-            result = subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], 
-                                  capture_output=True, text=True, check=True)
-            print(f"✓ Enabled IP forwarding: {result.stdout.strip()}")
-            
             # Remove existing bridge if it exists
-           #  print("🔧 DEBUG: Removing existing bridge0 if present...")
             subprocess.run(['ip', 'link', 'del', 'bridge0'], 
                           capture_output=True, text=True)
             
             # Create and configure bridge
-           #  print("🔧 DEBUG: Creating bridge0...")
             subprocess.run(['ip', 'link', 'add', 'bridge0', 'type', 'bridge'], check=True)
             print("✓ Created bridge0")
             
-           #  print("🔧 DEBUG: Configuring bridge0 IP...")
             subprocess.run(['ip', 'addr', 'add', '10.0.0.1/24', 'dev', 'bridge0'], check=True)
             print("✓ Added IP 10.0.0.1/24 to bridge0")
             
-           #  print("🔧 DEBUG: Bringing bridge0 up...")
             subprocess.run(['ip', 'link', 'set', 'bridge0', 'up'], check=True)
             print("✓ Bridge0 is up")
             
-            # Get default network interface
-           #  print("🔧 DEBUG: Finding default network interface...")
-            route_result = subprocess.run(['ip', 'route', 'show', 'default'], 
-                                        capture_output=True, text=True, check=True)
-            default_iface = route_result.stdout.split()[4]
-            print(f"✓ Detected default interface: {default_iface}")
-            
-            # Clear existing iptables rules
-           #  print("🔧 DEBUG: Clearing existing iptables rules...")
-            subprocess.run(['iptables', '-F'], check=True)
-            subprocess.run(['iptables', '-t', 'nat', '-F'], check=True)
-            subprocess.run(['iptables', '-t', 'mangle', '-F'], check=True)
-            subprocess.run(['iptables', '-X'], check=True)
-            print("✓ Cleared existing iptables rules")
-            
-            # Set default policies
-           #  print("🔧 DEBUG: Setting iptables default policies...")
-            subprocess.run(['iptables', '-P', 'FORWARD', 'ACCEPT'], check=True)
-            subprocess.run(['iptables', '-P', 'INPUT', 'ACCEPT'], check=True)
-            subprocess.run(['iptables', '-P', 'OUTPUT', 'ACCEPT'], check=True)
-            print("✓ Set default policies to ACCEPT")
-            
-            # Add iptables rules for NAT and forwarding
-           #  print("🔧 DEBUG: Adding iptables NAT rules...")
-            subprocess.run(['iptables', '-t', 'nat', '-A', 'POSTROUTING', '-s', '10.0.0.0/24', 
-                           '!', '-o', 'bridge0', '-j', 'MASQUERADE'], check=True)
-            print("✓ Added NAT rule for 10.0.0.0/24")
-            
-           #  print("🔧 DEBUG: Adding iptables forwarding rules...")
-            subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', default_iface, '-j', 'ACCEPT'], check=True)
-            subprocess.run(['iptables', '-A', 'FORWARD', '-i', default_iface, '-o', 'bridge0', 
-                           '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], check=True)
-            subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', 'bridge0', '-j', 'ACCEPT'], check=True)
-            print("✓ Added forwarding rules")
-            
-            print("✓ Bridge network setup completed successfully")
             return True
             
         except subprocess.CalledProcessError as e:
-            print(f"✗ Error setting up bridge network: {e}")
+            print(f"✗ Error creating bridge interface: {e}")
             return False
         except Exception as e:
             print(f"✗ Unexpected error: {e}")
             return False
     else:
-        # TODO: Implement bridge network setup
-        #   - Enable IP forwarding with sysctl
+        # TODO: Implement bridge interface creation
+        #   - Check if bridge0 already exists
+        #   - Remove existing bridge if present
         #   - Create bridge0 interface
         #   - Configure bridge0 with IP 10.0.0.1/24
-        #   - Set up iptables rules for NAT and forwarding
-        #   - Handle the case where bridge already exists
+        #   - Bring bridge0 up
         pass
 
 
-def test_bridge_network():
-    """Test bridge network setup"""
-    print("Testing bridge network setup...")
+def test_bridge_interface():
+    """Test bridge interface creation"""
+    print("Testing bridge interface creation...")
     
-    result = setup_bridge_network()
+    result = create_bridge_interface()
     if result:
-        print("✓ Bridge network setup successful!")
+        print("✓ Bridge interface creation successful!")
         
         # Test bridge connectivity
         print("Testing bridge connectivity...")
@@ -210,13 +159,158 @@ def test_bridge_network():
         except Exception as e:
             print(f"⚠ Could not test bridge connectivity: {e}")
     else:
-        print("✗ Bridge network setup failed")
+        print("✗ Bridge interface creation failed")
     
     print("=" * 60)
     return result
 
 
 # Run the test
+test_bridge_interface()
+
+# %%
+"""
+## Exercise 5.1b: NAT and Forwarding Rules
+
+After creating the bridge interface, we need to set up iptables rules for NAT (Network Address Translation) 
+and packet forwarding. This allows containers to access the internet through the host's network interface.
+
+### Exercise - implement setup_nat_forwarding
+
+> **Difficulty**: 🔴🔴🔴🔴⚪  
+> **Importance**: 🔵🔵🔵🔵🔵
+> 
+> You should spend up to ~15 minutes on this exercise.
+
+Implement the NAT and forwarding setup function that configures iptables for internet connectivity.
+"""
+
+
+def setup_nat_forwarding():
+    """
+    Set up NAT and forwarding rules for container internet access
+    """
+    # Check if running as root
+    if os.geteuid() != 0:
+        print("⚠ Warning: NAT setup requires root privileges")
+        return False
+    
+    if "SOLUTION":
+        try:
+            # Enable IP forwarding
+            result = subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], 
+                                  capture_output=True, text=True, check=True)
+            print(f"✓ Enabled IP forwarding: {result.stdout.strip()}")
+            
+            # Get default network interface
+            route_result = subprocess.run(['ip', 'route', 'show', 'default'], 
+                                        capture_output=True, text=True, check=True)
+            default_iface = route_result.stdout.split()[4]
+            print(f"✓ Detected default interface: {default_iface}")
+            
+            # Clear existing iptables rules
+            subprocess.run(['iptables', '-F'], check=True)
+            subprocess.run(['iptables', '-t', 'nat', '-F'], check=True)
+            subprocess.run(['iptables', '-t', 'mangle', '-F'], check=True)
+            subprocess.run(['iptables', '-X'], check=True)
+            print("✓ Cleared existing iptables rules")
+            
+            # Set default policies
+            subprocess.run(['iptables', '-P', 'FORWARD', 'ACCEPT'], check=True)
+            subprocess.run(['iptables', '-P', 'INPUT', 'ACCEPT'], check=True)
+            subprocess.run(['iptables', '-P', 'OUTPUT', 'ACCEPT'], check=True)
+            print("✓ Set default policies to ACCEPT")
+            
+            # Add iptables rules for NAT and forwarding
+            subprocess.run(['iptables', '-t', 'nat', '-A', 'POSTROUTING', '-s', '10.0.0.0/24', 
+                           '!', '-o', 'bridge0', '-j', 'MASQUERADE'], check=True)
+            print("✓ Added NAT rule for 10.0.0.0/24")
+            
+            subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', default_iface, '-j', 'ACCEPT'], check=True)
+            subprocess.run(['iptables', '-A', 'FORWARD', '-i', default_iface, '-o', 'bridge0', 
+                           '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], check=True)
+            subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', 'bridge0', '-j', 'ACCEPT'], check=True)
+            print("✓ Added forwarding rules")
+            
+            print("✓ NAT and forwarding setup completed successfully")
+            return True
+            
+        except subprocess.CalledProcessError as e:
+            print(f"✗ Error setting up NAT and forwarding: {e}")
+            return False
+        except Exception as e:
+            print(f"✗ Unexpected error: {e}")
+            return False
+    else:
+        # TODO: Implement NAT and forwarding setup
+        #   - Enable IP forwarding with sysctl
+        #   - Get default network interface
+        #   - Clear existing iptables rules
+        #   - Set iptables default policies to ACCEPT
+        #   - Add NAT rule for MASQUERADE
+        #   - Add forwarding rules between bridge and default interface
+        pass
+
+
+def setup_bridge_network():
+    """
+    Complete bridge network setup combining interface creation and NAT configuration
+    """
+    print("Setting up complete bridge network...")
+    
+    # Create bridge interface
+    if not create_bridge_interface():
+        return False
+    
+    # Set up NAT and forwarding
+    if not setup_nat_forwarding():
+        return False
+    
+    print("✓ Complete bridge network setup successful!")
+    return True
+
+
+def test_nat_forwarding():
+    """Test NAT and forwarding setup"""
+    print("Testing NAT and forwarding setup...")
+    
+    result = setup_nat_forwarding()
+    if result:
+        print("✓ NAT and forwarding setup successful!")
+        
+        # Test IP forwarding is enabled
+        try:
+            with open('/proc/sys/net/ipv4/ip_forward', 'r') as f:
+                forward_status = f.read().strip()
+            if forward_status == '1':
+                print("✓ IP forwarding is enabled")
+            else:
+                print("⚠ IP forwarding may not be enabled")
+        except Exception as e:
+            print(f"⚠ Could not check IP forwarding status: {e}")
+    else:
+        print("✗ NAT and forwarding setup failed")
+    
+    print("=" * 60)
+    return result
+
+
+def test_bridge_network():
+    """Test complete bridge network setup"""
+    print("Testing complete bridge network setup...")
+    
+    result = setup_bridge_network()
+    if result:
+        print("✓ Complete bridge network setup successful!")
+    else:
+        print("✗ Complete bridge network setup failed")
+    
+    print("=" * 60)
+    return result
+
+
+# Run the tests
+test_nat_forwarding()
 test_bridge_network()
 
 # %%
@@ -639,6 +733,21 @@ test_networked_container()
 # %%
 if __name__ == "__main__":
     print("Testing container networking...")
+    print("\n" + "="*50)
+    print("RUNNING ALL NETWORKING EXERCISES")
+    print("="*50)
+    
+    # Exercise 5.1a: Bridge Interface Creation
+    test_bridge_interface()
+    
+    # Exercise 5.1b: NAT and Forwarding Rules  
+    test_nat_forwarding()
+    
+    # Exercise 5.1 Combined: Complete Bridge Network
     test_bridge_network()
+    
+    # Exercise 5.2: Container Network Creation
     test_container_network()
+    
+    # Exercise 5.3: Running Networked Containers
     test_networked_container() 
