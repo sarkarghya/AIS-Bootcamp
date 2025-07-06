@@ -1102,7 +1102,8 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
     # Create container network
     netns_name = None
     if bridge_ready:
-        netns_name = create_container_network(container_id, ip_suffix)
+        # netns_name = create_container_network(container_id, ip_suffix)
+        netns_name = create_isolated_network_namespace(container_id)
         if netns_name:
             print(f"✓ Container {container_id} assigned IP: 10.0.0.{ip_suffix}/24")
         else:
@@ -1160,7 +1161,8 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
         
         # Cleanup
         if netns_name:
-            cleanup_container_network(container_id)
+            # cleanup_container_network(container_id)
+            cleanup_isolated_network_namespace(container_id)
         
         return exit_code
         
@@ -1169,7 +1171,8 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
         import traceback
         traceback.print_exc()
         if netns_name:
-            cleanup_container_network(container_id)
+            # cleanup_container_network(container_id)
+            cleanup_isolated_network_namespace(container_id)
         return None
 
 
@@ -1313,212 +1316,212 @@ def cleanup_isolated_network_namespace(container_id):
         print(f"⚠ Warning: Could not fully clean up isolated network for {container_id}: {e}")
 
 
-def create_isolated_container(cgroup_name, chroot_dir, command=None, memory_limit="100M", container_name="isolated_container"):
-    """
-    Create a container with isolated network (no external connectivity)
-    This is a separate function that creates containers with complete network isolation
+# def create_isolated_container(cgroup_name, chroot_dir, command=None, memory_limit="100M", container_name="isolated_container"):
+#     """
+#     Create a container with isolated network (no external connectivity)
+#     This is a separate function that creates containers with complete network isolation
     
-    Args:
-        cgroup_name: Name of the cgroup to create/use
-        chroot_dir: Directory to chroot into  
-        command: Command to run
-        memory_limit: Memory limit for the cgroup
-        container_name: Name for the container
-    """
-    import subprocess
-    import os
-    import uuid
+#     Args:
+#         cgroup_name: Name of the cgroup to create/use
+#         chroot_dir: Directory to chroot into  
+#         command: Command to run
+#         memory_limit: Memory limit for the cgroup
+#         container_name: Name for the container
+#     """
+#     import subprocess
+#     import os
+#     import uuid
     
-    # Create cgroup
-    create_cgroup(cgroup_name, memory_limit=memory_limit)
+#     # Create cgroup
+#     create_cgroup(cgroup_name, memory_limit=memory_limit)
     
-    if command is None:
-        command = ['/bin/sh']
-    elif isinstance(command, str):
-        command = ['/bin/sh', '-c', command]
+#     if command is None:
+#         command = ['/bin/sh']
+#     elif isinstance(command, str):
+#         command = ['/bin/sh', '-c', command]
     
-    # Generate unique container ID
-    container_id = f"{container_name}_{str(uuid.uuid4())[:8]}"
+#     # Generate unique container ID
+#     container_id = f"{container_name}_{str(uuid.uuid4())[:8]}"
     
-    print(f"🔧 DEBUG: Creating isolated container: {container_id}")
-    print(f"🔧 DEBUG: Command: {command}")
-    print(f"🔧 DEBUG: Memory limit: {memory_limit}")
+#     print(f"🔧 DEBUG: Creating isolated container: {container_id}")
+#     print(f"🔧 DEBUG: Command: {command}")
+#     print(f"🔧 DEBUG: Memory limit: {memory_limit}")
     
-    # Create isolated network namespace
-    netns_name = create_isolated_network_namespace(container_id)
+#     # Create isolated network namespace
+#     netns_name = create_isolated_network_namespace(container_id)
     
-    if not netns_name:
-        print(f"✗ Failed to create isolated network namespace for container {container_id}")
-        return None
+#     if not netns_name:
+#         print(f"✗ Failed to create isolated network namespace for container {container_id}")
+#         return None
     
-    try:
-        # Build execution command with isolated network namespace
-        exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
-                   '--pid', '--mount', '--uts', '--ipc', '--fork', 
-                   'chroot', chroot_dir] + command
+#     try:
+#         # Build execution command with isolated network namespace
+#         exec_args = ['ip', 'netns', 'exec', netns_name, 'unshare', 
+#                    '--pid', '--mount', '--uts', '--ipc', '--fork', 
+#                    'chroot', chroot_dir] + command
         
-        print(f"🔧 DEBUG: Command: {exec_args}")
-        print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
+#         print(f"🔧 DEBUG: Command: {exec_args}")
+#         print(f"🔧 DEBUG: Chroot directory exists: {os.path.exists(chroot_dir)}")
         
-        print(f"\n🚀 STARTING ISOLATED CONTAINER {container_id}")
-        print("="*60)
+#         print(f"\n🚀 STARTING ISOLATED CONTAINER {container_id}")
+#         print("="*60)
         
-        # Use Popen for real-time output streaming
-        process = subprocess.Popen(
-            exec_args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True,
-            bufsize=1  # Line buffered
-        )
+#         # Use Popen for real-time output streaming
+#         process = subprocess.Popen(
+#             exec_args,
+#             stdout=subprocess.PIPE,
+#             stderr=subprocess.STDOUT,
+#             universal_newlines=True,
+#             bufsize=1  # Line buffered
+#         )
         
-        # Stream output in real-time
-        if process.stdout:
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    print(output.strip())
+#         # Stream output in real-time
+#         if process.stdout:
+#             while True:
+#                 output = process.stdout.readline()
+#                 if output == '' and process.poll() is not None:
+#                     break
+#                 if output:
+#                     print(output.strip())
         
-        # Wait for process to complete
-        exit_code = process.wait()
+#         # Wait for process to complete
+#         exit_code = process.wait()
         
-        print("="*60)
-        print(f"🏁 ISOLATED CONTAINER {container_id} COMPLETED")
-        print(f"🔧 DEBUG: Container exit code: {exit_code}")
+#         print("="*60)
+#         print(f"🏁 ISOLATED CONTAINER {container_id} COMPLETED")
+#         print(f"🔧 DEBUG: Container exit code: {exit_code}")
         
-        # Cleanup
-        cleanup_isolated_network_namespace(container_id)
+#         # Cleanup
+#         cleanup_isolated_network_namespace(container_id)
         
-        return exit_code
+#         return exit_code
         
-    except Exception as e:
-        print(f"✗ Error running isolated container: {e}")
-        import traceback
-        traceback.print_exc()
-        cleanup_isolated_network_namespace(container_id)
-        return None
+#     except Exception as e:
+#         print(f"✗ Error running isolated container: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         cleanup_isolated_network_namespace(container_id)
+#         return None
 
 
-def test_networked_vs_isolated():
-    """
-    Test function to compare networked vs isolated containers
-    """
-    print("\n" + "="*70)
-    print("COMPARING NETWORKED VS ISOLATED CONTAINERS")
-    print("="*70)
+# def test_networked_vs_isolated():
+#     """
+#     Test function to compare networked vs isolated containers
+#     """
+#     print("\n" + "="*70)
+#     print("COMPARING NETWORKED VS ISOLATED CONTAINERS")
+#     print("="*70)
     
-    # Test script that tries to access external network
-    test_script = '''
-echo "=== Container Network Test ==="
-echo "1. Testing loopback connectivity:"
-ping -c 1 127.0.0.1 || echo "   ✗ Loopback failed"
+#     # Test script that tries to access external network
+#     test_script = '''
+# echo "=== Container Network Test ==="
+# echo "1. Testing loopback connectivity:"
+# ping -c 1 127.0.0.1 || echo "   ✗ Loopback failed"
 
-echo "2. Testing external connectivity (should fail in isolated):"
-ping -c 1 -W 2 8.8.8.8 || echo "   ✗ External network unreachable"
+# echo "2. Testing external connectivity (should fail in isolated):"
+# ping -c 1 -W 2 8.8.8.8 || echo "   ✗ External network unreachable"
 
-echo "3. Checking network interfaces:"
-if command -v ip >/dev/null 2>&1; then
-    ip addr show | grep "inet " | wc -l
-else
-    echo "   ip command not available"
-fi
+# echo "3. Checking network interfaces:"
+# if command -v ip >/dev/null 2>&1; then
+#     ip addr show | grep "inet " | wc -l
+# else
+#     echo "   ip command not available"
+# fi
 
-echo "4. Testing DNS resolution (should fail in isolated):"
-if command -v nslookup >/dev/null 2>&1; then
-    nslookup google.com || echo "   ✗ DNS resolution failed"
-else
-    echo "   nslookup not available"
-fi
+# echo "4. Testing DNS resolution (should fail in isolated):"
+# if command -v nslookup >/dev/null 2>&1; then
+#     nslookup google.com || echo "   ✗ DNS resolution failed"
+# else
+#     echo "   nslookup not available"
+# fi
 
-echo "=== Test Complete ==="
-'''
+# echo "=== Test Complete ==="
+# '''
     
-    print("\n1. Testing NETWORKED container (should have internet access):")
-    print("-" * 50)
-    run_networked_container(
-        cgroup_name="test_networked",
-        chroot_dir="./extracted_python",
-        command=test_script,
-        memory_limit="50M",
-        container_name="networked_test"
-    )
+#     print("\n1. Testing NETWORKED container (should have internet access):")
+#     print("-" * 50)
+#     run_networked_container(
+#         cgroup_name="test_networked",
+#         chroot_dir="./extracted_python",
+#         command=test_script,
+#         memory_limit="50M",
+#         container_name="networked_test"
+#     )
     
-    print("\n2. Testing ISOLATED container (should have NO internet access):")
-    print("-" * 50)
-    create_isolated_container(
-        cgroup_name="test_isolated", 
-        chroot_dir="./extracted_python",
-        command=test_script,
-        memory_limit="50M",
-        container_name="isolated_test"
-    )
+#     print("\n2. Testing ISOLATED container (should have NO internet access):")
+#     print("-" * 50)
+#     create_isolated_container(
+#         cgroup_name="test_isolated", 
+#         chroot_dir="./extracted_python",
+#         command=test_script,
+#         memory_limit="50M",
+#         container_name="isolated_test"
+#     )
     
-    print("\n" + "="*70)
-    print("COMPARISON COMPLETE")
-    print("Expected results:")
-    print("- Networked container: External ping and DNS should work")
-    print("- Isolated container: Only loopback should work, external should fail")
-    print("="*70)
+#     print("\n" + "="*70)
+#     print("COMPARISON COMPLETE")
+#     print("Expected results:")
+#     print("- Networked container: External ping and DNS should work")
+#     print("- Isolated container: Only loopback should work, external should fail")
+#     print("="*70)
 
 
-# %% Test isolated networking functionality
-print("\n" + "="*50)
-print("TESTING ISOLATED NETWORK NAMESPACE")
-print("="*50)
+# # %% Test isolated networking functionality
+# print("\n" + "="*50)
+# print("TESTING ISOLATED NETWORK NAMESPACE")
+# print("="*50)
 
-print("Creating an isolated network namespace and testing its functionality:")
+# print("Creating an isolated network namespace and testing its functionality:")
 
-# Test the isolated network namespace creation directly
-import uuid
-test_container_id = f"test_isolated_{str(uuid.uuid4())[:8]}"
-print(f"\nTesting isolated network namespace creation with container ID: {test_container_id}")
+# # Test the isolated network namespace creation directly
+# import uuid
+# test_container_id = f"test_isolated_{str(uuid.uuid4())[:8]}"
+# print(f"\nTesting isolated network namespace creation with container ID: {test_container_id}")
 
-# Create isolated namespace
-netns_name = create_isolated_network_namespace(test_container_id)
-if netns_name:
-    print(f"✓ Successfully created isolated namespace: {netns_name}")
+# # Create isolated namespace
+# netns_name = create_isolated_network_namespace(test_container_id)
+# if netns_name:
+#     print(f"✓ Successfully created isolated namespace: {netns_name}")
     
-    # Test network commands in the isolated namespace
-    print("\nTesting network commands in isolated namespace:")
-    import subprocess
+#     # Test network commands in the isolated namespace
+#     print("\nTesting network commands in isolated namespace:")
+#     import subprocess
     
-    # Test interface listing
-    print("1. Available network interfaces:")
-    result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'show'], 
-                          capture_output=True, text=True)
-    if result.returncode == 0:
-        print(result.stdout)
+#     # Test interface listing
+#     print("1. Available network interfaces:")
+#     result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'show'], 
+#                           capture_output=True, text=True)
+#     if result.returncode == 0:
+#         print(result.stdout)
     
-    # Test ping to external (should fail)
-    print("2. Testing external ping (should fail):")
-    result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '8.8.8.8'], 
-                          capture_output=True, text=True)
-    if result.returncode != 0:
-        print("✓ External ping failed as expected (network is isolated)")
-    else:
-        print("⚠ External ping succeeded - isolation may not be working")
+#     # Test ping to external (should fail)
+#     print("2. Testing external ping (should fail):")
+#     result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '8.8.8.8'], 
+#                           capture_output=True, text=True)
+#     if result.returncode != 0:
+#         print("✓ External ping failed as expected (network is isolated)")
+#     else:
+#         print("⚠ External ping succeeded - isolation may not be working")
     
-    # Test loopback ping (should work)
-    print("3. Testing loopback ping (should work):")
-    result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '127.0.0.1'], 
-                          capture_output=True, text=True)
-    if result.returncode == 0:
-        print("✓ Loopback ping succeeded")
-    else:
-        print("⚠ Loopback ping failed")
+#     # Test loopback ping (should work)
+#     print("3. Testing loopback ping (should work):")
+#     result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '127.0.0.1'], 
+#                           capture_output=True, text=True)
+#     if result.returncode == 0:
+#         print("✓ Loopback ping succeeded")
+#     else:
+#         print("⚠ Loopback ping failed")
     
-    # Cleanup
-    cleanup_isolated_network_namespace(test_container_id)
-    print(f"✓ Cleaned up test namespace")
+#     # Cleanup
+#     cleanup_isolated_network_namespace(test_container_id)
+#     print(f"✓ Cleaned up test namespace")
 
-# %% Test complete container comparison
-print("\n" + "="*50)
-print("TESTING CONTAINER NETWORK COMPARISON")
-print("="*50)
+# # %% Test complete container comparison
+# print("\n" + "="*50)
+# print("TESTING CONTAINER NETWORK COMPARISON")
+# print("="*50)
 
-print("Running side-by-side comparison of networked vs isolated containers:")
-test_networked_vs_isolated()
+# print("Running side-by-side comparison of networked vs isolated containers:")
+# test_networked_vs_isolated()
 
 
