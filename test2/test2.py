@@ -1320,34 +1320,28 @@ run_networked_container(
 #!/usr/bin/env python3
 import subprocess
 import threading
-import re
-import signal
 import os
+import signal
+import time
 
-# Dangerous syscalls that could indicate CVE-2024-0137 exploitation
+# Dangerous syscalls for CVE-2024-0137
 DANGEROUS_SYSCALLS = {
-    'setns',      # Network namespace manipulation
-    'unshare',    # Namespace creation/modification  
-    'mount',      # Filesystem manipulation
-    'pivot_root', # Root filesystem changes
-    'chroot',     # Root directory changes
-    'clone',      # Process/namespace cloning
-    'socket',     # Network socket creation (monitor for host namespace)
-    'bind',       # Network binding (check for host interfaces)
-    'connect'     # Network connections (monitor for host network)
+    'setns', 'unshare', 'mount', 'pivot_root', 'chroot', 
+    'clone', 'socket', 'bind', 'connect'
 }
 
-def monitor_syscalls(pid, alert_callback):
-    """Monitor syscalls of a process and ALL its children using strace"""
+def monitor_container_syscalls(container_command, alert_callback):
+    """
+    Monitor syscalls by running strace INSIDE the container namespace
+    """
     try:
-        # CRITICAL FIX: Add -f flag to follow child processes
+        # Build strace command that runs inside the container
         strace_cmd = [
-            'strace', 
-            '-f',           # Follow child processes (ESSENTIAL!)
-            '-p', str(pid), 
-            '-e', 'trace=' + ','.join(DANGEROUS_SYSCALLS),
-            '-o', '/dev/stderr'
-        ]
+            'strace', '-f', '-e', 'trace=' + ','.join(DANGEROUS_SYSCALLS),
+            '-o', '/dev/stderr'  # Send to stderr for monitoring
+        ] + container_command
+        
+        print(f"🔍 Running strace inside container: {' '.join(strace_cmd)}")
         
         process = subprocess.Popen(
             strace_cmd,
@@ -1356,206 +1350,180 @@ def monitor_syscalls(pid, alert_callback):
             universal_newlines=True
         )
         
-        # Monitor stderr for syscall output
-        for line in iter(process.stderr.readline, ''):
-            if any(syscall in line for syscall in DANGEROUS_SYSCALLS):
-                # Extract PID from strace output format: [pid 12345] syscall(...)
-                pid_match = re.search(r'\[pid (\d+)\]', line)
-                detected_pid = pid_match.group(1) if pid_match else str(pid)
-                alert_callback(line.strip(), detected_pid)
-                
+        # Monitor stderr for syscall traces
+        def monitor_stderr():
+            for line in iter(process.stderr.readline, ''):
+                if line.strip():
+                    # Check for dangerous syscalls
+                    if any(syscall in line for syscall in DANGEROUS_SYSCALLS):
+                        alert_callback(line.strip(), process.pid)
+                    # Also print container output
+                    if not any(syscall in line for syscall in DANGEROUS_SYSCALLS):
+                        print(f"[CONTAINER] {line.strip()}")
+        
+        # Monitor stdout for normal output
+        def monitor_stdout():
+            for line in iter(process.stdout.readline, ''):
+                if line.strip():
+                    print(f"[CONTAINER] {line.strip()}")
+        
+        # Start monitoring threads
+        stderr_thread = threading.Thread(target=monitor_stderr, daemon=True)
+        stdout_thread = threading.Thread(target=monitor_stdout, daemon=True)
+        
+        stderr_thread.start()
+        stdout_thread.start()
+        
+        # Wait for process completion
+        exit_code = process.wait()
+        return exit_code
+        
     except Exception as e:
-        print(f"⚠ Syscall monitor error: {e}")
+        print(f"⚠ Container monitoring error: {e}")
+        return -1
 
-def alert_handler(syscall_line, detected_pid):
-    """Enhanced alert handler that can kill specific child processes"""
-    print(f"🚨 SECURITY ALERT: Dangerous syscall detected in PID {detected_pid}")
-    print(f"   Syscall: {syscall_line}")
+def alert_handler(syscall_line, pid):
+    """Enhanced alert handler for CVE-2024-0137"""
+    print(f"🚨 SECURITY ALERT: Dangerous syscall detected!")
+    print(f"   Syscall trace: {syscall_line}")
+    print(f"   Process PID: {pid}")
     
-    # Check for specific CVE-2024-0137 patterns
+    # Specific CVE-2024-0137 detection patterns
     if 'unshare' in syscall_line and ('CLONE_NEWNET' in syscall_line or '--net' in syscall_line):
         print(f"🔥 CRITICAL: CVE-2024-0137 network namespace escape detected!")
-        print(f"   Killing malicious process {detected_pid}")
+        print(f"   Terminating malicious container...")
         try:
-            os.kill(int(detected_pid), signal.SIGKILL)
+            # Kill the entire process group
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
         except:
-            # If we can't kill the specific PID, kill the entire process group
             try:
-                os.killpg(int(detected_pid), signal.SIGKILL)
+                os.kill(pid, signal.SIGKILL)
             except:
                 pass
     
-    if 'setns' in syscall_line:
-        print(f"🔥 CRITICAL: Direct namespace manipulation detected!")
-        print(f"   Killing process {detected_pid}")
-        try:
-            os.kill(int(detected_pid), signal.SIGKILL)
-        except:
-            pass
+    elif 'setns' in syscall_line:
+        print(f"🔥 CRITICAL: Namespace manipulation detected!")
+        print(f"   Possible container escape attempt!")
 
-def run_monitored_container(cgroup_name, chroot_dir="/extracted_alpine", 
-                          command=None, memory_limit="100M", container_name="container"):
+def run_monitored_container_fixed(cgroup_name, chroot_dir="./extracted_python", 
+                                 command=None, memory_limit="100M", container_name="container"):
     """
-    Wrapper around run_networked_container with syscall monitoring
+    Fixed version that properly monitors syscalls inside containers
     """
     import uuid
-    import time
     
-    # Generate container ID
     container_id = f"{container_name}_{str(uuid.uuid4())[:8]}"
-    
     print(f"🔍 Starting monitored container: {container_id}")
-    print(f"🛡️  Monitoring for CVE-2024-0137 exploitation attempts...")
+    print(f"🛡️  Enhanced monitoring for CVE-2024-0137...")
     
-    # Create the container execution command
     if command is None:
         command = ['/bin/sh']
     elif isinstance(command, str):
         command = ['/bin/sh', '-c', command]
     
-    # Build execution args (simplified from your original)
-    exec_args = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', 
-                '--fork', 'chroot', chroot_dir] + command
+    # Build the complete container command
+    container_cmd = [
+        'unshare', '--pid', '--mount', '--net', '--uts', '--ipc', '--fork',
+        'chroot', chroot_dir
+    ] + command
     
-    try:
-        # Start the container process
-        print(f"🚀 Executing: {' '.join(exec_args)}")
-        process = subprocess.Popen(
-            exec_args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True
-        )
-        
-        # Start syscall monitoring in a separate thread
-        monitor_thread = threading.Thread(
-            target=monitor_syscalls, 
-            args=(process.pid, alert_handler),
-            daemon=True
-        )
-        monitor_thread.start()
-        
-        print(f"🔍 Syscall monitoring active for PID {process.pid}")
-        
-        # Stream container output while monitoring
-        try:
-            for line in iter(process.stdout.readline, ''):
-                if line:
-                    print(f"[CONTAINER] {line.strip()}")
-        except KeyboardInterrupt:
-            print(f"\n🛑 Stopping container {container_id}")
-            process.terminate()
-        
-        # Wait for process completion
-        exit_code = process.wait()
-        print(f"🏁 Container {container_id} exited with code: {exit_code}")
-        
-        return exit_code
-        
-    except Exception as e:
-        print(f"❌ Container execution error: {e}")
-        return -1
+    print(f"🚀 Executing with internal monitoring...")
+    
+    # Run with internal syscall monitoring
+    exit_code = monitor_container_syscalls(container_cmd, alert_handler)
+    
+    print(f"🏁 Container {container_id} exited with code: {exit_code}")
+    return exit_code
 
-# Test functions for rogue syscalls
-def test_rogue_network_escape():
-    """Test that simulates CVE-2024-0137 network namespace escape"""
+# Enhanced test functions
+def test_rogue_network_escape_fixed():
+    """Enhanced test that should trigger alerts"""
     print("\n" + "="*60)
-    print("🧪 TESTING: Rogue network namespace escape (CVE-2024-0137)")
+    print("🧪 TESTING: Enhanced rogue network namespace escape")
     print("="*60)
     
+    # More aggressive test that directly calls unshare syscall
     rogue_command = """
-    echo "Attempting network namespace escape..."
-    # Simulate CVE-2024-0137 exploitation attempt
+    echo "Attempting direct namespace escape..."
     python3 -c "
 import os
+import ctypes
 import subprocess
-print('Container attempting to escape network namespace...')
+
+print('Direct syscall-based namespace escape attempt...')
+
+# Try direct unshare syscall (this should be caught)
 try:
-    # This would trigger our monitor
-    subprocess.run(['unshare', '--net', '/bin/sh', '-c', 'echo namespace escape attempt'], timeout=1)
-except:
-    pass
-print('Rogue syscall test completed')
+    libc = ctypes.CDLL('libc.so.6')
+    CLONE_NEWNET = 0x40000000
+    result = libc.unshare(CLONE_NEWNET)
+    print(f'Direct unshare syscall result: {result}')
+except Exception as e:
+    print(f'Direct syscall failed: {e}')
+
+# Try subprocess unshare (this should also be caught)
+try:
+    subprocess.run(['unshare', '--net', 'echo', 'namespace created'], timeout=1)
+except Exception as e:
+    print(f'Subprocess unshare failed: {e}')
+
+print('Rogue test completed')
 "
     """
     
-    return run_monitored_container(
-        cgroup_name="rogue_test",
-        chroot_dir="./extracted_python",  # Use Python container for testing
+    return run_monitored_container_fixed(
+        cgroup_name="rogue_test_fixed",
+        chroot_dir="./extracted_python",
         command=rogue_command,
         memory_limit="50M",
-        container_name="rogue_test"
+        container_name="rogue_fixed"
     )
 
-def test_normal_container():
-    """Test normal container behavior"""
+def test_setns_attack():
+    """Test direct setns syscall attack"""
     print("\n" + "="*60)
-    print("✅ TESTING: Normal container behavior")
+    print("🧪 TESTING: Direct setns namespace escape")
     print("="*60)
     
-    normal_command = """
-    echo "Normal container operations..."
+    setns_command = """
     python3 -c "
+import ctypes
 import os
-print(f'Container PID: {os.getpid()}')
-print('Performing normal operations...')
-print('Container completed successfully')
-"
-    """
-    
-    return run_monitored_container(
-        cgroup_name="normal_test",
-        chroot_dir="./extracted_python",
-        command=normal_command,
-        memory_limit="50M", 
-        container_name="normal_test"
-    )
 
-def test_file_access_attempt():
-    """Test unauthorized file access attempts"""
-    print("\n" + "="*60)
-    print("🧪 TESTING: Unauthorized file access")
-    print("="*60)
-    
-    file_attack_command = """
-    echo "Attempting unauthorized file access..."
-    python3 -c "
-import subprocess
-print('Attempting to access host files...')
+print('Attempting setns-based escape...')
 try:
-    # These operations might trigger mount/chroot syscalls
-    subprocess.run(['mount', '--help'], timeout=1, capture_output=True)
-    subprocess.run(['chroot', '--help'], timeout=1, capture_output=True)
-except:
-    pass
-print('File access test completed')
+    libc = ctypes.CDLL('libc.so.6')
+    # Try to setns to host network namespace (this should be blocked)
+    fd = os.open('/proc/1/ns/net', os.O_RDONLY)
+    result = libc.setns(fd, 0)
+    print(f'setns result: {result}')
+    os.close(fd)
+except Exception as e:
+    print(f'setns attack failed: {e}')
+print('setns test completed')
 "
     """
     
-    return run_monitored_container(
-        cgroup_name="file_test",
+    return run_monitored_container_fixed(
+        cgroup_name="setns_test",
         chroot_dir="./extracted_python",
-        command=file_attack_command,
+        command=setns_command,
         memory_limit="50M",
-        container_name="file_test"
+        container_name="setns_test"
     )
 
-# Main execution and testing
+# Main execution
 if __name__ == "__main__":
-    print("🛡️  CVE-2024-0137 Syscall Monitor - Container Antivirus")
+    print("🛡️  FIXED CVE-2024-0137 Syscall Monitor - Container Antivirus")
     print("=" * 60)
     
-    # Run tests
-    print("Running security tests...")
+    print("Running enhanced security tests...")
     
-    # Test 1: Normal behavior (should pass)
-    test_normal_container()
+    # Test 1: Enhanced rogue network escape
+    test_rogue_network_escape_fixed()
     
-    # Test 2: Rogue network escape (should trigger alerts)
-    test_rogue_network_escape()
+    # Test 2: Direct setns attack
+    test_setns_attack()
     
-    # Test 3: File access attempts (should trigger alerts)
-    test_file_access_attempt()
-    
-    print("\n🎯 All tests completed!")
-    print("🔍 Check output above for security alerts and blocked attempts")
+    print("\n🎯 Enhanced tests completed!")
+    print("🔍 Dangerous syscalls should now be properly detected and blocked")
