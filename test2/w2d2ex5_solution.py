@@ -71,6 +71,8 @@ def create_cgroup(cgroup_name, memory_limit=None):
 A bridge network acts as a software switch that connects multiple network interfaces. 
 The first step is creating the bridge interface itself and configuring it with an IP address.
 
+Bash to bring bridge down: ip link set bridge0 down && ip link delete bridge0 && ip -all netns delete && for i in $(ip link | grep veth | awk '{print $2}' | cut -d: -f1); do ip link delete $i; done
+
 ### Exercise - implement create_bridge_interface
 
 > **Difficulty**: 🔴🔴🔴⚪⚪  
