@@ -227,6 +227,75 @@ def test_chroot_python():
     return run_chroot("./extracted_python", "python --version")
 
 
+def pivot_root(new_root, old_root_mountpoint):
+    """
+    Implement pivot_root for proper filesystem isolation
+    
+    Args:
+        new_root: Path to the new root filesystem
+        old_root_mountpoint: Where to mount the old root within new_root
+    
+    Returns:
+        Boolean indicating success
+    """
+    import os
+    import subprocess
+    
+    try:
+        # Mount new root and create old root directory
+        subprocess.run(['mount', '--bind', new_root, new_root], check=True)
+        old_root_path = os.path.join(new_root, old_root_mountpoint.lstrip('/'))
+        os.makedirs(old_root_path, exist_ok=True)
+        
+        # Execute pivot_root system call
+        subprocess.run(['pivot_root', new_root, old_root_path], check=True)
+        
+        # Optionally unmount old root for complete isolation
+        subprocess.run(['umount', f'/{old_root_mountpoint}'], check=True)
+        
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        print(f"pivot_root failed: {e}")
+        return False
+
+def test_pivot_root():
+    """
+    Test pivot_root functionality with actual system call
+    """
+    import os
+    import tempfile
+    import shutil
+    
+    print("=== Testing pivot_root ===")
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        new_root = os.path.join(temp_dir, "new_root")
+        old_root_dir = "old_root"
+        
+        # Setup test environment
+        os.makedirs(new_root, exist_ok=True)
+        os.makedirs(os.path.join(new_root, 'bin'), exist_ok=True)
+        
+        # Copy essential binary
+        if os.path.exists('/bin/sh'):
+            shutil.copy2('/bin/sh', os.path.join(new_root, 'bin'))
+        
+        print(f"Testing pivot_root: {new_root} -> {old_root_dir}")
+        
+        # Execute pivot_root
+        result = pivot_root(new_root, old_root_dir)
+        
+        if result:
+            print("✓ pivot_root completed successfully")
+            print("✓ Original root filesystem isolated")
+        else:
+            print("✗ pivot_root failed (requires root privileges)")
+        
+        return result
+
+
+
 def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memory_limit="100M"):
     """
     Run a command in cgroup, chroot, and namespace isolation
@@ -688,6 +757,8 @@ print("TESTING CHROOT FUNCTIONALITY")
 print("="*50)
 print("Testing chroot Python version:")
 test_chroot_python()
+
+test_pivot_root()
 
 # %% Test namespace isolation
 print("\n" + "="*50)
