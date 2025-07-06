@@ -729,25 +729,3 @@ def test_networked_container():
 
 # Run the test
 test_networked_container()
-
-# %%
-if __name__ == "__main__":
-    print("Testing container networking...")
-    print("\n" + "="*50)
-    print("RUNNING ALL NETWORKING EXERCISES")
-    print("="*50)
-    
-    # Exercise 5.1a: Bridge Interface Creation
-    test_bridge_interface()
-    
-    # Exercise 5.1b: NAT and Forwarding Rules  
-    test_nat_forwarding()
-    
-    # Exercise 5.1 Combined: Complete Bridge Network
-    test_bridge_network()
-    
-    # Exercise 5.2: Container Network Creation
-    test_container_network()
-    
-    # Exercise 5.3: Running Networked Containers
-    test_networked_container() 
