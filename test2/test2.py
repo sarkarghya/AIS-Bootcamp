@@ -1394,12 +1394,15 @@ def alert_handler(syscall_line, pid):
         print(f"   Terminating malicious container...")
         try:
             # Kill the entire process group
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
+            os.kill(pid, signal.SIGKILL)
         except:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except:
-                pass
+            pass
+        #     os.killpg(os.getpgid(pid), signal.SIGKILL)
+        # except:
+        #     try:
+        #         os.kill(pid, signal.SIGKILL)
+        #     except:
+        #         pass
     
     elif 'setns' in syscall_line:
         print(f"🔥 CRITICAL: Namespace manipulation detected!")
@@ -1512,18 +1515,7 @@ print('setns test completed')
         container_name="setns_test"
     )
 
-# Main execution
-if __name__ == "__main__":
-    print("🛡️  FIXED CVE-2024-0137 Syscall Monitor - Container Antivirus")
-    print("=" * 60)
-    
-    print("Running enhanced security tests...")
-    
-    # Test 1: Enhanced rogue network escape
-    test_rogue_network_escape_fixed()
-    
-    # Test 2: Direct setns attack
-    test_setns_attack()
-    
-    print("\n🎯 Enhanced tests completed!")
-    print("🔍 Dangerous syscalls should now be properly detected and blocked")
+test_rogue_network_escape_fixed()
+
+test_setns_attack()
+
