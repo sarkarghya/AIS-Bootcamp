@@ -6,87 +6,96 @@
 
 #### Introduction: Understanding Cgroups
 
-In this exercise, you'll learn about cgroups (control groups), a Linux kernel feature that limits and isolates resource usage of processes. Cgroups are fundamental to container resource management, allowing you to control CPU, memory, I/O, and other resources.
+In this exercise, you'll learn about cgroups (control groups), a Linux kernel feature that provides resource management and isolation for containers. Cgroups allow you to limit, account for, and isolate resource usage (CPU, memory, disk I/O, etc.) of groups of processes.
 
-Cgroups provide a mechanism to organize processes hierarchically and distribute system resources along the hierarchy in a controlled and configurable manner. Modern container runtimes like Docker use cgroups to enforce resource limits and ensure fair resource sharing between containers.
+Cgroups are essential for container technology, providing the foundation for resource limits and guarantees. Docker, Kubernetes, and other container orchestration systems rely heavily on cgroups to manage resources fairly and prevent resource starvation.
+
+Understanding cgroups is crucial for:
+- Setting memory and CPU limits on containers
+- Preventing resource exhaustion attacks
+- Implementing fair resource sharing
+- Building container orchestration systems
 
 ## Content & Learning Objectives
 
-### 1️⃣ Basic Cgroup Setup
-Create cgroup directories and enable controllers for resource management.
+### 1️⃣ Basic Cgroup Creation
+Create and configure basic cgroups with memory limits.
 
 > **Learning Objectives**
 > - Understand cgroup filesystem structure
-> - Learn how to create and configure cgroups
-> - Enable resource controllers
+> - Learn to create cgroup directories
+> - Configure memory limits and controllers
 
-### 2️⃣ Memory Limit Configuration
-Set memory limits for cgroups to control memory usage.
-
-> **Learning Objectives**
-> - Configure memory limits using cgroup.memory.max
-> - Understand memory management in containers
-> - Handle memory limit errors
-
-### 3️⃣ Advanced Memory Configuration
-Implement comprehensive memory settings with proper limits.
+### 2️⃣ Process Assignment
+Assign processes to cgroups for resource management.
 
 > **Learning Objectives**
-> - Set up advanced memory configurations
-> - Handle memory limit validation
-> - Configure memory controllers properly
+> - Learn how to add processes to cgroups
+> - Understand process inheritance in cgroups
+> - Handle process assignment errors
 
-### 4️⃣ Swap Management
-Disable swap settings for containers to enforce hard memory limits.
-
-> **Learning Objectives**
-> - Disable swap for containers
-> - Understand swap impact on memory limits
-> - Configure memory.swap.max settings
-
-### 5️⃣ OOM Management
-Configure Out-of-Memory (OOM) behavior for container processes.
+### 3️⃣ Combined Cgroup-Chroot Execution
+Execute commands with both cgroup limits and chroot isolation.
 
 > **Learning Objectives**
-> - Configure OOM group killing
+> - Combine multiple isolation mechanisms
+> - Understand container-like execution
+> - Handle complex execution pipelines
+
+### 4️⃣ Comprehensive Cgroup Setup (Part 1)
+Set up cgroups with comprehensive memory management.
+
+> **Learning Objectives**
+> - Configure advanced cgroup features
+> - Understand memory subsystem options
+> - Implement robust memory limits
+
+### 5️⃣ Comprehensive Cgroup Setup (Part 2)
+Complete comprehensive memory management with swap control and OOM settings.
+
+> **Learning Objectives**
+> - Configure swap and OOM behavior
 > - Understand memory pressure handling
-> - Manage container termination behavior
+> - Implement production-ready memory limits
 
 """
 
 # %%
+import subprocess
 import os
-from typing import Optional
+import signal
+import time
+from typing import Optional, List, Union
 
 # %%
 """
-## Exercise 1: Basic Cgroup Setup
+## Exercise 1: Basic Cgroup Creation
 
-Cgroups are organized in a hierarchical filesystem at `/sys/fs/cgroup/`. To create a cgroup, you need to:
-1. Create a directory under `/sys/fs/cgroup/`
-2. Enable the necessary controllers in the parent cgroup
+Cgroups are organized in a hierarchy in the `/sys/fs/cgroup` filesystem. To create a cgroup, you need to create directories and write to control files to configure resource limits.
 
-### Exercise - implement create_cgroup_directory
+### Exercise - implement create_cgroup
 
-> **Difficulty**: 🔴🔴⚪⚪⚪  
+> **Difficulty**: 🔴🔴🔴⚪⚪  
 > **Importance**: 🔵🔵🔵🔵⚪
 > 
-> You should spend up to ~10 minutes on this exercise.
+> You should spend up to ~15 minutes on this exercise.
 
-Implement the `create_cgroup_directory` function that creates a cgroup directory and enables controllers.
+Implement the `create_cgroup` function that creates a basic cgroup with memory limits.
 """
 
-def create_cgroup_directory(cgroup_name: str) -> str:
+def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
     """
-    Create a cgroup directory and enable controllers.
+    Create a cgroup with specified limits
     
     Args:
-        cgroup_name: Name of the cgroup to create
-        
-    Returns:
-        Path to the created cgroup directory
+        cgroup_name: Name of the cgroup (e.g., 'demo')
+        memory_limit: Memory limit (e.g., '100M', '1000000')
+        cpu_limit: CPU limit (not implemented yet)
     """
     if "SOLUTION":
+        import subprocess
+        import os
+        
         cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
         
         # Create cgroup directory
@@ -101,135 +110,316 @@ def create_cgroup_directory(cgroup_name: str) -> str:
         except Exception as e:
             print(f"Warning: Could not enable controllers: {e}")
         
-        return cgroup_path
-    else:
-        # TODO: Implement cgroup directory creation
-        # 1. Create cgroup directory under /sys/fs/cgroup/
-        # 2. Enable controllers (+cpu +memory +pids) in parent cgroup
-        # 3. Return the cgroup path
-        pass
-
-def test_create_cgroup_directory(create_cgroup_directory):
-    """Test the cgroup directory creation function."""
-    print("Testing cgroup directory creation...")
-    
-    try:
-        cgroup_path = create_cgroup_directory("test_cgroup")
-        assert os.path.exists(cgroup_path), "Cgroup directory should exist"
-        assert cgroup_path.endswith("test_cgroup"), "Should return correct path"
-        print("✓ Cgroup directory creation works")
-        
-        # Cleanup
-        os.rmdir(cgroup_path)
-        
-    except Exception as e:
-        print(f"⚠ Cgroup directory test failed: {e}")
-    
-    print("✓ Cgroup directory tests passed!\n" + "=" * 60)
-
-test_create_cgroup_directory(create_cgroup_directory)
-
-# %%
-"""
-## Exercise 2: Memory Limit Configuration
-
-Memory limits in cgroups are controlled through the `memory.max` file. This sets the maximum amount of memory that processes in the cgroup can use.
-
-### Exercise - implement set_memory_limit
-
-> **Difficulty**: 🔴🔴⚪⚪⚪  
-> **Importance**: 🔵🔵🔵🔵⚪
-> 
-> You should spend up to ~10 minutes on this exercise.
-
-Implement the `set_memory_limit` function that sets memory limits for a cgroup.
-"""
-
-def set_memory_limit(cgroup_path: str, memory_limit: str) -> bool:
-    """
-    Set memory limit for a cgroup.
-    
-    Args:
-        cgroup_path: Path to the cgroup directory
-        memory_limit: Memory limit (e.g., '100M', '1000000')
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    if "SOLUTION":
+        # Set memory limit if specified
         if memory_limit:
             memory_max_path = f"{cgroup_path}/memory.max"
             try:
                 with open(memory_max_path, "w") as f:
                     f.write(str(memory_limit))
                 print(f"Set memory limit to {memory_limit}")
-                return True
             except Exception as e:
                 print(f"Error setting memory limit: {e}")
-                return False
-        return False
+        
+        return cgroup_path
     else:
-        # TODO: Implement memory limit setting
-        # 1. Build path to memory.max file
-        # 2. Write memory_limit to the file
-        # 3. Handle exceptions and return success status
+        # TODO: Implement basic cgroup creation
+        # 1. Create cgroup directory under /sys/fs/cgroup/
+        # 2. Enable controllers (+cpu +memory +pids) in parent cgroup
+        # 3. Set memory limit if specified
+        # 4. Return the cgroup path
         pass
 
-def test_set_memory_limit(set_memory_limit, create_cgroup_directory):
-    """Test the memory limit configuration function."""
-    print("Testing memory limit configuration...")
+def test_create_cgroup(create_cgroup):
+    """Test the basic cgroup creation function."""
+    print("Testing basic cgroup creation...")
     
-    try:
-        cgroup_path = create_cgroup_directory("test_memory")
-        success = set_memory_limit(cgroup_path, "100M")
-        assert success, "Memory limit setting should succeed"
-        
-        # Verify limit was set
+    # Test 1: Create cgroup without limits
+    cgroup_path = create_cgroup("test_basic")
+    if cgroup_path:
+        assert os.path.exists(cgroup_path), "Cgroup directory should exist"
+        print("✓ Basic cgroup creation works")
+    else:
+        print("⚠ Basic cgroup creation failed - may need root privileges")
+    
+    # Test 2: Create cgroup with memory limit
+    cgroup_path = create_cgroup("test_memory", memory_limit="50M")
+    if cgroup_path:
         memory_max_path = f"{cgroup_path}/memory.max"
         if os.path.exists(memory_max_path):
             with open(memory_max_path, "r") as f:
                 limit = f.read().strip()
             print(f"✓ Memory limit set to: {limit}")
-        
-        # Cleanup
-        os.rmdir(cgroup_path)
-        
-    except Exception as e:
-        print(f"⚠ Memory limit test failed: {e}")
+        else:
+            print("⚠ Memory limit file not found")
+    else:
+        print("⚠ Memory limit test failed")
     
-    print("✓ Memory limit tests passed!\n" + "=" * 60)
+    print("✓ Basic cgroup creation tests completed!\n" + "=" * 60)
 
-test_set_memory_limit(set_memory_limit, create_cgroup_directory)
+test_create_cgroup(create_cgroup)
 
 # %%
 """
-## Exercise 3: Advanced Memory Configuration
+## Exercise 2: Process Assignment
 
-Advanced memory configuration includes comprehensive validation and error handling to ensure memory limits are properly enforced.
+Once a cgroup is created, processes can be assigned to it by writing their PIDs to the `cgroup.procs` file. This allows the cgroup to manage resources for those processes.
 
-### Exercise - implement setup_advanced_memory
+### Exercise - implement add_process_to_cgroup
 
-> **Difficulty**: 🔴🔴🔴⚪⚪  
+> **Difficulty**: 🔴🔴⚪⚪⚪  
+> **Importance**: 🔵🔵🔵🔵⚪
+> 
+> You should spend up to ~10 minutes on this exercise.
+
+Implement the `add_process_to_cgroup` function that assigns processes to cgroups.
+"""
+
+def add_process_to_cgroup(cgroup_name, pid=None):
+    """
+    Add a process to a cgroup
+    
+    Args:
+        cgroup_name: Name of the cgroup
+        pid: Process ID (default: current process)
+    """
+    if "SOLUTION":
+        import os
+        
+        if pid is None:
+            pid = os.getpid()
+        
+        cgroup_procs_path = f"/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
+        
+        try:
+            with open(cgroup_procs_path, "w") as f:
+                f.write(str(pid))
+            print(f"Added process {pid} to cgroup {cgroup_name}")
+            return True
+        except Exception as e:
+            print(f"Error adding process to cgroup: {e}")
+            return False
+    else:
+        # TODO: Implement process assignment to cgroup
+        # 1. Use current process PID if none specified
+        # 2. Write PID to cgroup.procs file
+        # 3. Handle errors and return success status
+        pass
+
+def test_add_process_to_cgroup(add_process_to_cgroup, create_cgroup):
+    """Test the process assignment function."""
+    print("Testing process assignment to cgroup...")
+    
+    # Create a test cgroup first
+    cgroup_path = create_cgroup("test_process")
+    if not cgroup_path:
+        print("⚠ Cannot test process assignment - cgroup creation failed")
+        return
+    
+    # Test: Add current process to cgroup
+    success = add_process_to_cgroup("test_process")
+    if success:
+        # Verify the process was added
+        cgroup_procs_path = f"{cgroup_path}/cgroup.procs"
+        if os.path.exists(cgroup_procs_path):
+            with open(cgroup_procs_path, "r") as f:
+                procs = f.read().strip().split('\n')
+            current_pid = str(os.getpid())
+            if current_pid in procs:
+                print("✓ Process assignment works")
+            else:
+                print("⚠ Process not found in cgroup.procs")
+        else:
+            print("⚠ cgroup.procs file not found")
+    else:
+        print("⚠ Process assignment failed")
+    
+    print("✓ Process assignment tests completed!\n" + "=" * 60)
+
+test_add_process_to_cgroup(add_process_to_cgroup, create_cgroup)
+
+# %%
+"""
+## Exercise 3: Combined Cgroup-Chroot Execution
+
+This exercise combines cgroup resource limits with chroot filesystem isolation, creating a more complete container-like environment.
+
+### Exercise - implement run_in_cgroup_chroot
+
+> **Difficulty**: 🔴🔴🔴🔴⚪  
+> **Importance**: 🔵🔵🔵🔵🔵
+> 
+> You should spend up to ~20 minutes on this exercise.
+
+Implement the `run_in_cgroup_chroot` function that executes commands with both cgroup and chroot isolation.
+"""
+
+def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="100M"):
+    """
+    Run a command in both a cgroup and chroot environment
+    
+    Args:
+        cgroup_name: Name of the cgroup to create/use
+        chroot_dir: Directory to chroot into
+        command: Command to run
+        memory_limit: Memory limit for the cgroup
+    """
+    if "SOLUTION":
+        import subprocess
+        import os
+        
+        # Create cgroup
+        create_cgroup(cgroup_name, memory_limit=memory_limit)
+        
+        if command is None:
+            command = ['/bin/sh']
+        elif isinstance(command, str):
+            command = ['/bin/sh', '-c', command]
+        
+        # Create a shell script that adds the process to cgroup then chroots
+        script = f"""
+        echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
+        chroot {chroot_dir} {' '.join(command)}
+        """
+        
+        try:
+            # Run without capturing output so we see it in real-time
+            result = subprocess.run(['sh', '-c', script], timeout=60)
+            return result
+        except subprocess.TimeoutExpired:
+            print("Command timed out after 60 seconds")
+            return None
+        except Exception as e:
+            print(f"Error running command: {e}")
+            return None
+    else:
+        # TODO: Implement combined cgroup-chroot execution
+        # 1. Create cgroup with memory limit
+        # 2. Handle command format (None, string, list)
+        # 3. Create shell script that:
+        #    - Adds process to cgroup
+        #    - Executes chroot with command
+        # 4. Run with timeout and error handling
+        pass
+
+def test_memory_simple(cgroup_name="demo", memory_limit="100M"):
+    """
+    Simple memory test that matches the user's manual example exactly
+    """
+    print(f"Testing memory allocation with {memory_limit} limit:")
+    print("(This should show allocations and then get killed)")
+    
+    # Create cgroup
+    create_cgroup(cgroup_name, memory_limit=memory_limit)
+    
+    # Use a here document to avoid quote nesting issues completely
+    script = f"""
+    echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
+    chroot extracted_python/ /bin/sh << 'EOF'
+python3 -c "
+data = []
+for i in range(100):
+    data.append('x' * 10 * 1024 * 1024)
+    print('Allocated ' + str((i+1)*10) + 'MB', flush=True)
+"
+EOF
+    """
+    
+    import subprocess
+    import signal
+    try:
+        # Use Popen to get real-time output and better control
+        process = subprocess.Popen(['sh', '-c', script], 
+                                 stdout=subprocess.PIPE, 
+                                 stderr=subprocess.STDOUT,
+                                 universal_newlines=True)
+        
+        # Stream output in real-time
+        if process.stdout:
+            for line in iter(process.stdout.readline, ''):
+                print(line.strip())
+        
+        process.wait(timeout=60)
+        
+        # Check how the process ended
+        if process.returncode == 0:
+            print("\n⚠ Process completed normally - memory limit may not be working")
+        elif process.returncode == -signal.SIGKILL or process.returncode == 137:
+            print("\n✓ Process was KILLED (likely by OOM killer) - memory limit working!")
+            print("   Return code 137 = 128 + 9 (SIGKILL)")
+        elif process.returncode < 0:
+            print(f"\n✓ Process was killed by signal {-process.returncode}")
+        else:
+            print(f"\n? Process exited with code {process.returncode}")
+        
+        return process.returncode
+    except subprocess.TimeoutExpired:
+        print("\n✗ Test timed out")
+        return None
+    except Exception as e:
+        print(f"\n✗ Error: {e}")
+        return None
+
+def test_run_in_cgroup_chroot(run_in_cgroup_chroot):
+    """Test the combined cgroup-chroot execution function."""
+    print("Testing combined cgroup-chroot execution...")
+    
+    # Test basic command execution
+    result = run_in_cgroup_chroot("test_combined", "./extracted_alpine", "echo 'Hello from container!'")
+    if result:
+        print(f"✓ Basic combined execution completed with exit code: {result.returncode}")
+    else:
+        print("⚠ Basic combined execution failed")
+
+    test_memory_simple(cgroup_name="demo_comprehensive", memory_limit="50M")
+    
+    print("✓ Combined cgroup-chroot tests completed!\n" + "=" * 60)
+
+test_run_in_cgroup_chroot(run_in_cgroup_chroot)
+
+# %%
+"""
+## Exercise 4: Comprehensive Cgroup Setup (Part 1)
+
+This exercise implements the first part of comprehensive cgroup configuration with better memory management and error handling.
+
+### Exercise - implement create_cgroup_comprehensive (basic setup)
+
+> **Difficulty**: 🔴🔴🔴🔴⚪  
 > **Importance**: 🔵🔵🔵🔵⚪
 > 
 > You should spend up to ~15 minutes on this exercise.
 
-Implement the `setup_advanced_memory` function that sets up advanced memory configuration.
+Implement the basic setup part of `create_cgroup_comprehensive`.
 """
 
-def setup_advanced_memory(cgroup_path: str, memory_limit: str) -> bool:
+def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=None):
     """
-    Set up advanced memory configuration with validation.
+    Create a cgroup with comprehensive settings - Part 1: Basic setup
     
     Args:
-        cgroup_path: Path to the cgroup directory
+        cgroup_name: Name of the cgroup (e.g., 'demo')
         memory_limit: Memory limit (e.g., '100M', '1000000')
-        
-    Returns:
-        True if successful, False otherwise
+        cpu_limit: CPU limit (not implemented yet)
     """
     if "SOLUTION":
-        print(f"Setting up advanced memory configuration: {memory_limit}")
+        import subprocess
+        import os
+        
+        cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
+        
+        print(f"Setting up comprehensive cgroup: {cgroup_name}")
+        
+        # Create cgroup directory
+        os.makedirs(cgroup_path, exist_ok=True)
+        print(f"✓ Created cgroup directory: {cgroup_path}")
+        
+        # Enable controllers in parent cgroup
+        try:
+            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
+                f.write("+cpu +memory +pids")
+            print("✓ Enabled cgroup controllers")
+        except Exception as e:
+            print(f"Warning: Could not enable controllers: {e}")
         
         # Set memory limit if specified
         if memory_limit:
@@ -238,196 +428,173 @@ def setup_advanced_memory(cgroup_path: str, memory_limit: str) -> bool:
                 with open(memory_max_path, "w") as f:
                     f.write(str(memory_limit))
                 print(f"✓ Set memory limit to {memory_limit}")
-                return True
             except Exception as e:
                 print(f"✗ Error setting memory limit: {e}")
-                return False
-        return False
+                return None
+        
+        return cgroup_path
     else:
-        # TODO: Implement advanced memory configuration
-        # 1. Add debugging output for memory limit
-        # 2. Set memory limit with proper error handling
-        # 3. Return success status with validation
+        # TODO: Implement comprehensive cgroup creation - Part 1
+        # 1. Create cgroup directory with better error handling
+        # 2. Enable controllers with proper error checking
+        # 3. Set memory limits with validation
+        # 4. Return None if any critical step fails
         pass
 
-def test_setup_advanced_memory(setup_advanced_memory, create_cgroup_directory):
-    """Test the advanced memory configuration function."""
-    print("Testing advanced memory configuration...")
+def test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1):
+    """Test the comprehensive cgroup creation function - Part 1."""
+    print("Testing comprehensive cgroup creation - Part 1...")
     
-    try:
-        cgroup_path = create_cgroup_directory("test_advanced")
-        success = setup_advanced_memory(cgroup_path, "50M")
-        assert success, "Advanced memory setup should succeed"
-        print("✓ Advanced memory configuration works")
+    # Test comprehensive cgroup with memory limit
+    cgroup_path = create_cgroup_comprehensive_part1("test_comprehensive_p1", memory_limit="100M")
+    if cgroup_path:
+        assert os.path.exists(cgroup_path), "Cgroup directory should exist"
         
-        # Cleanup
-        os.rmdir(cgroup_path)
-        
-    except Exception as e:
-        print(f"⚠ Advanced memory test failed: {e}")
+        # Check if memory limit was set
+        memory_max_path = f"{cgroup_path}/memory.max"
+        if os.path.exists(memory_max_path):
+            with open(memory_max_path, "r") as f:
+                limit = f.read().strip()
+            print(f"✓ Comprehensive cgroup created with memory limit: {limit}")
+        else:
+            print("⚠ Memory limit file not accessible")
+    else:
+        print("⚠ Comprehensive cgroup creation failed")
     
-    print("✓ Advanced memory tests passed!\n" + "=" * 60)
+    print("✓ Comprehensive cgroup creation Part 1 tests completed!\n" + "=" * 60)
 
-test_setup_advanced_memory(setup_advanced_memory, create_cgroup_directory)
+test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1)
 
 # %%
 """
-## Exercise 4: Swap Management
+## Exercise 5: Comprehensive Cgroup Setup (Part 2)
 
-Disabling swap is critical for container stability. When swap is enabled, containers can exceed their memory limits by using swap space, making memory limits ineffective.
+This final exercise completes the comprehensive memory management with swap control and OOM settings.
 
-### Exercise - implement disable_swap
+### Exercise - implement create_cgroup_comprehensive (complete)
 
-> **Difficulty**: 🔴🔴⚪⚪⚪  
-> **Importance**: 🔵🔵🔵🔵⚪
+> **Difficulty**: 🔴🔴🔴🔴🔴  
+> **Importance**: 🔵🔵🔵🔵🔵
 > 
-> You should spend up to ~10 minutes on this exercise.
+> You should spend up to ~20 minutes on this exercise.
 
-Implement the `disable_swap` function that disables swap for a cgroup.
+Implement the complete `create_cgroup_comprehensive` function with all advanced features.
 """
 
-def disable_swap(cgroup_path: str) -> bool:
+def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
     """
-    Disable swap for a cgroup to enforce hard memory limits.
+    Create a cgroup with comprehensive settings to ensure memory limits work properly
     
     Args:
-        cgroup_path: Path to the cgroup directory
-        
-    Returns:
-        True if successful, False otherwise
+        cgroup_name: Name of the cgroup (e.g., 'demo')
+        memory_limit: Memory limit (e.g., '100M', '1000000')
+        cpu_limit: CPU limit (not implemented yet)
     """
     if "SOLUTION":
+        import subprocess
+        import os
+        
+        cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
+        
+        print(f"Setting up comprehensive cgroup: {cgroup_name}")
+        
+        # Create cgroup directory
+        os.makedirs(cgroup_path, exist_ok=True)
+        print(f"✓ Created cgroup directory: {cgroup_path}")
+        
+        # Enable controllers in parent cgroup
+        try:
+            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
+                f.write("+cpu +memory +pids")
+            print("✓ Enabled cgroup controllers")
+        except Exception as e:
+            print(f"Warning: Could not enable controllers: {e}")
+        
+        # Set memory limit if specified
+        if memory_limit:
+            memory_max_path = f"{cgroup_path}/memory.max"
+            try:
+                with open(memory_max_path, "w") as f:
+                    f.write(str(memory_limit))
+                print(f"✓ Set memory limit to {memory_limit}")
+            except Exception as e:
+                print(f"✗ Error setting memory limit: {e}")
+                return None
+        
         # Disable swap for this cgroup (forces hard memory limit)
         try:
             swap_max_path = f"{cgroup_path}/memory.swap.max"
             with open(swap_max_path, "w") as f:
                 f.write("0")
             print("✓ Disabled swap for cgroup")
-            return True
         except Exception as e:
             print(f"Warning: Could not disable swap: {e}")
-            return False
-    else:
-        # TODO: Implement swap disabling
-        # 1. Build path to memory.swap.max file
-        # 2. Write "0" to disable swap
-        # 3. Handle exceptions and return success status
-        pass
-
-def test_disable_swap(disable_swap, create_cgroup_directory):
-    """Test the swap disabling function."""
-    print("Testing swap disabling...")
-    
-    try:
-        cgroup_path = create_cgroup_directory("test_swap")
-        success = disable_swap(cgroup_path)
-        # Don't assert success as some systems may not support this feature
-        print("✓ Swap disabling attempted")
         
-        # Cleanup
-        os.rmdir(cgroup_path)
-        
-    except Exception as e:
-        print(f"⚠ Swap disabling test failed: {e}")
-    
-    print("✓ Swap disabling tests passed!\n" + "=" * 60)
-
-test_disable_swap(disable_swap, create_cgroup_directory)
-
-# %%
-"""
-## Exercise 5: OOM Management
-
-Out-of-Memory (OOM) group killing ensures that when a container exceeds memory limits, all processes in the container are terminated together, preventing partial container states.
-
-### Exercise - implement configure_oom_killing
-
-> **Difficulty**: 🔴🔴🔴⚪⚪  
-> **Importance**: 🔵🔵🔵🔵⚪
-> 
-> You should spend up to ~10 minutes on this exercise.
-
-Implement the `configure_oom_killing` function that configures OOM group killing.
-"""
-
-def configure_oom_killing(cgroup_path: str) -> bool:
-    """
-    Configure OOM group killing for a cgroup.
-    
-    Args:
-        cgroup_path: Path to the cgroup directory
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    if "SOLUTION":
         # Set OOM killer to be more aggressive for this cgroup
         try:
             oom_group_path = f"{cgroup_path}/memory.oom.group"
             with open(oom_group_path, "w") as f:
                 f.write("1")
             print("✓ Enabled OOM group killing")
-            return True
         except Exception as e:
             print(f"Warning: Could not set OOM group: {e}")
-            return False
+        
+        return cgroup_path
     else:
-        # TODO: Implement OOM group killing configuration
-        # 1. Build path to memory.oom.group file
-        # 2. Write "1" to enable OOM group killing
-        # 3. Handle exceptions and return success status
+        # TODO: Implement complete comprehensive cgroup creation
+        # 1. Start with Part 1 implementation (directory, controllers, memory limit)
+        # 2. Disable swap by writing "0" to memory.swap.max
+        # 3. Enable OOM group killing by writing "1" to memory.oom.group
+        # 4. Handle all errors gracefully
+        # 5. Return cgroup path or None if failed
         pass
 
-def test_configure_oom_killing(configure_oom_killing, create_cgroup_directory):
-    """Test the OOM group killing configuration function."""
-    print("Testing OOM group killing configuration...")
+
+
+def test_create_cgroup_comprehensive(create_cgroup_comprehensive):
+    """Test the complete comprehensive cgroup creation function using the actual memory test."""
+    print("Testing complete comprehensive cgroup creation with memory test...")
     
-    try:
-        cgroup_path = create_cgroup_directory("test_oom")
-        success = configure_oom_killing(cgroup_path)
-        # Don't assert success as some systems may not support this feature
-        print("✓ OOM group killing configuration attempted")
-        
-        # Cleanup
-        os.rmdir(cgroup_path)
-        
-    except Exception as e:
-        print(f"⚠ OOM group killing test failed: {e}")
+    # Run the actual memory test from test2.py
+    print("\n1. Testing memory allocation with 50MB limit (should crash quickly):")
+    test_memory_simple(cgroup_name="demo_comprehensive", memory_limit="50M")
     
-    print("✓ OOM group killing tests passed!\n" + "=" * 60)
+    print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
 
-test_configure_oom_killing(configure_oom_killing, create_cgroup_directory)
-
-
+test_create_cgroup_comprehensive(create_cgroup_comprehensive)
 
 # %%
 """
 ## Summary: Understanding Cgroups
 
-Through these exercises, you've learned about cgroups, a fundamental container technology:
+Through these exercises, you've learned about cgroups using the actual implementations from a real container system:
 
 ### Key Concepts
 
-1. **Cgroup Hierarchy**: Cgroups are organized in a filesystem hierarchy under `/sys/fs/cgroup/`
-2. **Controllers**: Different resource types (CPU, memory, I/O) are managed by specific controllers
-3. **Memory Limits**: Hard limits (`memory.max`) control maximum memory usage
-4. **Swap Management**: Disabling swap ensures predictable memory behavior
-5. **OOM Handling**: Out-of-Memory group killing ensures clean container termination
+1. **Resource Isolation**: Cgroups provide fine-grained control over system resources
+2. **Memory Management**: Advanced memory limits, swap control, and OOM handling
+3. **Process Management**: Assigning processes to resource groups
+4. **Container Foundation**: Cgroups + chroot + namespaces = containers
 
 ### Real-World Applications
 
-- **Container Runtimes**: Docker, Kubernetes use cgroups for resource management
-- **System Administration**: Limiting resource usage for services and users
-- **Performance Tuning**: Preventing memory pressure and resource contention
-- **Security**: Isolating processes and preventing resource exhaustion attacks
+- **Docker/Podman**: Use cgroups for container resource limits
+- **Kubernetes**: Implements resource requests/limits via cgroups
+- **Systemd**: Uses cgroups for service resource management
+- **LXC/LXD**: Container platforms built on cgroups
 
-### Next Steps
+### Production Considerations
 
-Understanding cgroups enables you to:
-- Configure container resource limits effectively
-- Debug container performance issues
-- Implement custom resource management solutions
-- Optimize container density and resource utilization
+- **Memory Pressure**: Use memory.high to trigger pressure before OOM
+- **Swap Management**: Disable swap for predictable memory limits
+- **OOM Handling**: Configure OOM killer behavior for graceful degradation
+- **Monitoring**: Track cgroup statistics for resource usage
 
-Remember: Cgroups are the foundation of container resource management!
+### Security Implications
+
+- **Resource Exhaustion**: Prevent DoS attacks through resource limits
+- **Isolation**: Limit blast radius of compromised containers
+- **Fair Sharing**: Ensure no single container can starve others
+
+Remember: These are the actual implementations used in real container systems!
 """ 

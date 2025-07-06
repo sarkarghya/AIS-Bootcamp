@@ -705,8 +705,5 @@ This knowledge helps you:
 
 Remember: Understanding container internals is crucial for building secure, efficient containerized applications!
 """
-
-# %%
-# Example usage - uncomment to test with real images
 pull_layers("alpine:latest", "./extracted_alpine")
 pull_layers("python:3.12-alpine", "./extracted_python") 
