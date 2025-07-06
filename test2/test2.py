@@ -1037,6 +1037,132 @@ def cleanup_container_network(container_id):
         print(f"⚠ Warning: Could not fully clean up network for {container_id}: {e}")
 
 
+
+def create_isolated_network_namespace(container_id):
+    """
+    Create an isolated network namespace with no external connectivity
+    
+    Args:
+        container_id: Unique identifier for the container
+        
+    Returns:
+        netns_name: Name of the created network namespace, or None if failed
+    """
+    import subprocess
+    import os
+    
+    print(f"Creating isolated network namespace for container {container_id}...")
+    
+    if os.geteuid() != 0:
+        print("⚠ Warning: Network namespace creation requires root privileges")
+        return None
+    
+    try:
+        # Create shorter namespace name (Linux limit considerations)
+        short_id = container_id[-8:]
+        netns_name = f"isolated_{short_id}"
+        
+        print(f"🔧 DEBUG: Creating isolated namespace:")
+        print(f"   Namespace: {netns_name}")
+        print(f"   Container ID: {container_id}")
+        
+        # Create network namespace
+        print(f"🔧 DEBUG: Creating network namespace {netns_name}...")
+        subprocess.run(['ip', 'netns', 'add', netns_name], check=True)
+        print(f"✓ Created isolated namespace: {netns_name}")
+        
+        # Configure only loopback interface (no external connectivity)
+        print(f"🔧 DEBUG: Configuring loopback interface...")
+        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 'dev', 'lo', 'up'], check=True)
+        print(f"✓ Configured loopback interface in {netns_name}")
+        
+        # Test that the namespace is isolated (should only have loopback)
+        print(f"🔧 DEBUG: Verifying network isolation...")
+        result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'show'], 
+                              capture_output=True, text=True, check=True)
+        
+        # Count network interfaces (should only be loopback)
+        interfaces = len([line for line in result.stdout.split('\n') if ': ' in line and 'lo:' in line])
+        if interfaces == 1:
+            print(f"✓ Network isolation verified: only loopback interface present")
+        else:
+            print(f"⚠ Warning: Expected 1 interface (loopback), found {interfaces}")
+        
+        # Test that external connectivity is blocked
+        print(f"🔧 DEBUG: Testing network isolation...")
+        ping_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '-W', '1', '8.8.8.8'], 
+                                 capture_output=True, text=True)
+        if ping_test.returncode != 0:
+            print(f"✓ Network isolation confirmed: cannot reach external hosts")
+        else:
+            print(f"⚠ Warning: Network isolation may not be working - external ping succeeded")
+        
+        # Test loopback connectivity
+        print(f"🔧 DEBUG: Testing loopback connectivity...")
+        loopback_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '127.0.0.1'], 
+                                     capture_output=True, text=True)
+        if loopback_test.returncode == 0:
+            print(f"✓ Loopback connectivity confirmed")
+        else:
+            print(f"⚠ Warning: Loopback connectivity failed")
+        
+        print(f"✓ Successfully created isolated network namespace: {netns_name}")
+        print(f"  - No external connectivity")
+        print(f"  - Only loopback interface (127.0.0.1)")
+        print(f"  - Complete network isolation")
+        
+        return netns_name
+        
+    except subprocess.CalledProcessError as e:
+        print(f"✗ Error creating isolated network namespace: {e}")
+        print(f"   Command: {e.cmd}")
+        print(f"   Return code: {e.returncode}")
+        if e.stdout:
+            print(f"   Stdout: {e.stdout}")
+        if e.stderr:
+            print(f"   Stderr: {e.stderr}")
+        return None
+    except Exception as e:
+        print(f"✗ Unexpected error: {e}")
+        return None
+
+
+def cleanup_isolated_network_namespace(container_id):
+    """
+    Clean up isolated network namespace
+    """
+    import subprocess
+    import os
+    
+    if os.geteuid() != 0:
+        print("⚠ Warning: Network cleanup requires root privileges")
+        return
+    
+    try:
+        # Use same short naming convention as create_isolated_network_namespace
+        short_id = container_id[-8:]
+        netns_name = f"isolated_{short_id}"
+        
+        print(f"🔧 DEBUG: Cleaning up isolated namespace for container {container_id}")
+        print(f"   Short ID: {short_id}")
+        print(f"   Namespace: {netns_name}")
+        
+        # Remove network namespace
+        print(f"🔧 DEBUG: Removing network namespace {netns_name}...")
+        result = subprocess.run(['ip', 'netns', 'del', netns_name], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"✓ Removed isolated namespace: {netns_name}")
+        else:
+            print(f"⚠ Could not remove namespace {netns_name}: {result.stderr}")
+        
+        print(f"✓ Isolated network cleanup completed for container {container_id}")
+        
+    except Exception as e:
+        print(f"⚠ Warning: Could not fully clean up isolated network for {container_id}: {e}")
+
+
+
 # %% New separate networking functions (don't modify existing ones)
 
 def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit="100M", container_name="container"):
@@ -1191,129 +1317,6 @@ run_networked_container(
     container_name="python_demo"
 )
 
-
-def create_isolated_network_namespace(container_id):
-    """
-    Create an isolated network namespace with no external connectivity
-    
-    Args:
-        container_id: Unique identifier for the container
-        
-    Returns:
-        netns_name: Name of the created network namespace, or None if failed
-    """
-    import subprocess
-    import os
-    
-    print(f"Creating isolated network namespace for container {container_id}...")
-    
-    if os.geteuid() != 0:
-        print("⚠ Warning: Network namespace creation requires root privileges")
-        return None
-    
-    try:
-        # Create shorter namespace name (Linux limit considerations)
-        short_id = container_id[-8:]
-        netns_name = f"isolated_{short_id}"
-        
-        print(f"🔧 DEBUG: Creating isolated namespace:")
-        print(f"   Namespace: {netns_name}")
-        print(f"   Container ID: {container_id}")
-        
-        # Create network namespace
-        print(f"🔧 DEBUG: Creating network namespace {netns_name}...")
-        subprocess.run(['ip', 'netns', 'add', netns_name], check=True)
-        print(f"✓ Created isolated namespace: {netns_name}")
-        
-        # Configure only loopback interface (no external connectivity)
-        print(f"🔧 DEBUG: Configuring loopback interface...")
-        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 'dev', 'lo', 'up'], check=True)
-        print(f"✓ Configured loopback interface in {netns_name}")
-        
-        # Test that the namespace is isolated (should only have loopback)
-        print(f"🔧 DEBUG: Verifying network isolation...")
-        result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'show'], 
-                              capture_output=True, text=True, check=True)
-        
-        # Count network interfaces (should only be loopback)
-        interfaces = len([line for line in result.stdout.split('\n') if ': ' in line and 'lo:' in line])
-        if interfaces == 1:
-            print(f"✓ Network isolation verified: only loopback interface present")
-        else:
-            print(f"⚠ Warning: Expected 1 interface (loopback), found {interfaces}")
-        
-        # Test that external connectivity is blocked
-        print(f"🔧 DEBUG: Testing network isolation...")
-        ping_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '-W', '1', '8.8.8.8'], 
-                                 capture_output=True, text=True)
-        if ping_test.returncode != 0:
-            print(f"✓ Network isolation confirmed: cannot reach external hosts")
-        else:
-            print(f"⚠ Warning: Network isolation may not be working - external ping succeeded")
-        
-        # Test loopback connectivity
-        print(f"🔧 DEBUG: Testing loopback connectivity...")
-        loopback_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '127.0.0.1'], 
-                                     capture_output=True, text=True)
-        if loopback_test.returncode == 0:
-            print(f"✓ Loopback connectivity confirmed")
-        else:
-            print(f"⚠ Warning: Loopback connectivity failed")
-        
-        print(f"✓ Successfully created isolated network namespace: {netns_name}")
-        print(f"  - No external connectivity")
-        print(f"  - Only loopback interface (127.0.0.1)")
-        print(f"  - Complete network isolation")
-        
-        return netns_name
-        
-    except subprocess.CalledProcessError as e:
-        print(f"✗ Error creating isolated network namespace: {e}")
-        print(f"   Command: {e.cmd}")
-        print(f"   Return code: {e.returncode}")
-        if e.stdout:
-            print(f"   Stdout: {e.stdout}")
-        if e.stderr:
-            print(f"   Stderr: {e.stderr}")
-        return None
-    except Exception as e:
-        print(f"✗ Unexpected error: {e}")
-        return None
-
-
-def cleanup_isolated_network_namespace(container_id):
-    """
-    Clean up isolated network namespace
-    """
-    import subprocess
-    import os
-    
-    if os.geteuid() != 0:
-        print("⚠ Warning: Network cleanup requires root privileges")
-        return
-    
-    try:
-        # Use same short naming convention as create_isolated_network_namespace
-        short_id = container_id[-8:]
-        netns_name = f"isolated_{short_id}"
-        
-        print(f"🔧 DEBUG: Cleaning up isolated namespace for container {container_id}")
-        print(f"   Short ID: {short_id}")
-        print(f"   Namespace: {netns_name}")
-        
-        # Remove network namespace
-        print(f"🔧 DEBUG: Removing network namespace {netns_name}...")
-        result = subprocess.run(['ip', 'netns', 'del', netns_name], 
-                              capture_output=True, text=True)
-        if result.returncode == 0:
-            print(f"✓ Removed isolated namespace: {netns_name}")
-        else:
-            print(f"⚠ Could not remove namespace {netns_name}: {result.stderr}")
-        
-        print(f"✓ Isolated network cleanup completed for container {container_id}")
-        
-    except Exception as e:
-        print(f"⚠ Warning: Could not fully clean up isolated network for {container_id}: {e}")
 
 
 # def create_isolated_container(cgroup_name, chroot_dir, command=None, memory_limit="100M", container_name="isolated_container"):
