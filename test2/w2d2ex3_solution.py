@@ -327,7 +327,6 @@ data = []
 for i in range(99):
     # Use random data to prevent optimization
     data.append(str(random.random()) * 10 * 1024 * 1024)  # 10MB chunks
-    print("Allocated " + str((i+1)*10) + "MB / " + str(100 * 10) + "MB", flush=True)
 
 print('Test completed - this should not be reached if limits work!')
 "
