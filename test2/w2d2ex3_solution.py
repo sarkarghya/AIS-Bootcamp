@@ -322,13 +322,17 @@ import time
 print('Starting memory allocation test...')
 print('Process PID:', os.getpid())
 
+# data = []
+# for i in range(100):
+#     data.append('x' * 10 * 1024 * 1024)
+#     print('Allocated ' + str((i+1)*10) + 'MB', flush=True)
+
+import random
 data = []
-for i in range(100):
-    data.append('x' * 10 * 1024 * 1024)
-    print('Allocated ' + str((i+1)*10) + 'MB', flush=True)
-    
-    # Add a small delay to make killing more predictable
-    time.sleep(0.01)
+for i in range(99):
+    # Use random data to prevent optimization
+    data.append(str(random.random()) * 10 * 1024 * 1024)  # 10MB chunks
+    print(f"Allocated {(i+1)*10}MB / {100 * 10}MB", flush=True)
 
 print('Test completed - this should not be reached if limits work!')
 "
@@ -598,7 +602,7 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         pass
 
 
-def test_memory_comprehensive(cgroup_name="demo", memory_limit="100M"):
+def test_memory_comprehensive(cgroup_name="demo2", memory_limit="100M"):
     """
     Comprehensive memory test that properly sets up cgroups with all necessary settings
     including oom_score_adj to ensure the memory limit is enforced
