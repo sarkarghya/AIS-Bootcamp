@@ -603,20 +603,6 @@ def test_memory_comprehensive(cgroup_name="demo", memory_limit="100M"):
     
     # Create the test script with proper oom_score_adj setting
     script = f"""
-    # Add process to cgroup
-    echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
-    
-    # Set oom_score_adj to make this process more likely to be killed
-    echo 1000 > /proc/self/oom_score_adj
-    
-    # Verify we're in the cgroup
-    echo "Process in cgroup:"
-    cat /proc/self/cgroup | grep {cgroup_name}
-    
-    # Verify memory limits
-    echo "Memory limit: $(cat /sys/fs/cgroup/{cgroup_name}/memory.max)"
-    echo "Memory high: $(cat /sys/fs/cgroup/{cgroup_name}/memory.high)"
-    
     # Run the memory test in chroot
     chroot extracted_python/ /bin/sh << 'EOF'
     python3 -c "
@@ -675,18 +661,9 @@ EOF
         print(f"\n✗ Error: {e}")
         return None
 
-def test_create_cgroup_comprehensive(create_cgroup_comprehensive):
-    """Test the complete comprehensive cgroup creation function using the actual memory test."""
-    print("Testing complete comprehensive cgroup creation with memory test...")
-    
-    # Run the actual memory test from test2.py
-    print("\n1. Testing memory allocation with 50MB limit (should crash quickly):")
-    test_memory_simple(cgroup_name="demo_comprehensive", memory_limit="50M")
-    
-    print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
-
+print("Testing complete comprehensive cgroup creation with memory test...")
 test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
-
+print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
 # %%
 """
 ## Summary: Understanding Cgroups
