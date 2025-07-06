@@ -253,7 +253,7 @@ def create_container_network(container_id, ip_suffix):
     
     
     try:
-        if False:
+        if "SOLUTION":
             # Create shorter interface names (Linux limit: 15 characters)
             short_id = container_id[-8:]
             veth_host = f"veth0_{short_id}"
@@ -391,7 +391,7 @@ def cleanup_container_network(container_id):
         return
     
     try:
-        if False:
+        if "SOLUTION":
             short_id = container_id[-8:]
             veth_host = f"veth0_{short_id}"
             netns_name = f"netns_{short_id}"
