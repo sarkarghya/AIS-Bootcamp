@@ -2,7 +2,7 @@
 
 # %%
 """
-# Container Security Monitoring
+# 6. Container Security Monitoring
 
 In this exercise, you'll implement security monitoring for containers to detect potential escape attempts
 and malicious syscalls. This is crucial for preventing CVE-2024-0137 and similar container escape vulnerabilities.
