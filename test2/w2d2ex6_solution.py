@@ -129,8 +129,7 @@ def monitor_container_syscalls(container_command, alert_callback):
         else:
             # TODO: Implement syscall monitoring
             #   - Create strace command with dangerous syscalls filter
-
-            strace_cmd = []
+            strace_cmd = [] + container_command
             
             print(f"🔍 Running strace inside container: {' '.join(strace_cmd)}")
             
@@ -170,7 +169,7 @@ def monitor_container_syscalls(container_command, alert_callback):
             # Wait for process completion
             exit_code = process.wait()
             return exit_code
-            
+
     except Exception as e:
         print(f"⚠ Container monitoring error: {e}")
         return -1
@@ -213,8 +212,8 @@ CVE-2024-0137 specifically involves namespace escape attempts that we need to de
 
 ### Exercise - implement security_alert_handler
 
-> **Difficulty**: 🔴🔴🔴⚪⚪  
-> **Importance**: 🔵🔵🔵🔵🔵
+> **Difficulty**: 🔴⚪⚪⚪⚪  
+> **Importance**: 🔵🔵🔵⚪⚪ 
 > 
 > You should spend up to ~15 minutes on this exercise.
 
@@ -230,47 +229,41 @@ def security_alert_handler(syscall_line, pid):
         syscall_line: The strace output line containing the syscall
         pid: Process ID that made the syscall
     """
-    if "SOLUTION":
-        print(f"🚨 SECURITY ALERT: Dangerous syscall detected!")
-        print(f"   Syscall trace: {syscall_line}")
-        print(f"   Process PID: {pid}")
-        
-        # Specific CVE-2024-0137 detection patterns
-        if 'unshare' in syscall_line and ('CLONE_NEWNET' in syscall_line or '--net' in syscall_line):
-            print(f"🔥 CRITICAL: CVE-2024-0137 network namespace escape detected!")
-            print(f"   Terminating malicious container...")
-            try:
-                # Kill the entire process group
+
+    print(f"🚨 SECURITY ALERT: Dangerous syscall detected!")
+    print(f"   Syscall trace: {syscall_line}")
+    print(f"   Process PID: {pid}")
+    
+    # Specific CVE-2024-0137 detection patterns
+    if 'unshare' in syscall_line and ('CLONE_NEWNET' in syscall_line or '--net' in syscall_line):
+        print(f"🔥 CRITICAL: CVE-2024-0137 network namespace escape detected!")
+        print(f"   Terminating malicious container...")
+        try:
+            if "SOLUTION":
                 os.kill(pid, signal.SIGKILL)
                 print(f"✓ Process {pid} terminated")
-            except Exception as e:
-                print(f"⚠ Could not terminate process {pid}: {e}")
-        
-        elif 'setns' in syscall_line:
-            print(f"🔥 CRITICAL: Namespace manipulation detected!")
-            print(f"   Possible container escape attempt!")
-            # Log but don't kill immediately - might be legitimate
-        
-        elif 'mount' in syscall_line:
-            print(f"⚠ WARNING: Filesystem mount detected!")
-            print(f"   Monitor for privilege escalation attempts")
-        
-        elif 'pivot_root' in syscall_line:
-            print(f"🔥 CRITICAL: Root filesystem manipulation detected!")
-            print(f"   Possible container breakout attempt!")
-        
-        else:
-            print(f"⚠ WARNING: Suspicious syscall detected")
-            print(f"   Review for potential security implications")
+            else:
+                # TODO: Kill the entire process group
+                pass
+        except Exception as e:
+            print(f"⚠ Could not terminate process {pid}: {e}")
+    
+    elif 'setns' in syscall_line:
+        print(f"🔥 CRITICAL: Namespace manipulation detected!")
+        print(f"   Possible container escape attempt!")
+        # Log but don't kill immediately - might be legitimate
+    
+    elif 'mount' in syscall_line:
+        print(f"⚠ WARNING: Filesystem mount detected!")
+        print(f"   Monitor for privilege escalation attempts")
+    
+    elif 'pivot_root' in syscall_line:
+        print(f"🔥 CRITICAL: Root filesystem manipulation detected!")
+        print(f"   Possible container breakout attempt!")
+    
     else:
-        # TODO: Implement security alert handler
-        #   - Print security alert with syscall details
-        #   - Check for CVE-2024-0137 patterns (unshare with CLONE_NEWNET)
-        #   - Check for namespace manipulation (setns)
-        #   - Check for filesystem attacks (mount, pivot_root)
-        #   - Terminate malicious processes with os.kill(pid, signal.SIGKILL)
-        #   - Log different severity levels for different attack types
-        pass
+        print(f"⚠ WARNING: Suspicious syscall detected")
+        print(f"   Review for potential security implications")
 
 
 def test_security_alerts():
