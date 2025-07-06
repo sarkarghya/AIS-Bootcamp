@@ -313,13 +313,24 @@ def test_memory_simple(cgroup_name="demo", memory_limit="100M"):
     
     # Use a here document to avoid quote nesting issues completely
     script = f"""
-    echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
     chroot extracted_python/ /bin/sh << 'EOF'
 python3 -c "
+
+import os
+import time
+
+print('Starting memory allocation test...')
+print('Process PID:', os.getpid())
+
 data = []
 for i in range(100):
     data.append('x' * 10 * 1024 * 1024)
     print('Allocated ' + str((i+1)*10) + 'MB', flush=True)
+    
+    # Add a small delay to make killing more predictable
+    time.sleep(0.01)
+
+print('Test completed - this should not be reached if limits work!')
 "
 EOF
     """
@@ -605,7 +616,7 @@ def test_memory_comprehensive(cgroup_name="demo", memory_limit="100M"):
     script = f"""
     # Run the memory test in chroot
     chroot extracted_python/ /bin/sh << 'EOF'
-    python3 -c "
+python3 -c "
 import os
 import time
 
@@ -615,8 +626,7 @@ print('Process PID:', os.getpid())
 data = []
 for i in range(200):  # Allocate up to 2GB if not killed
     data.append('x' * 10 * 1024 * 1024)  # 10MB chunks
-    allocated_mb = (i+1) * 10
-    print('Allocated ' + str(allocated_mb) + 'MB', flush=True)
+    print('Allocated ' + str((i+1) * 10) + 'MB', flush=True)
     
     # Add a small delay to make killing more predictable
     time.sleep(0.01)
