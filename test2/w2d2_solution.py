@@ -1490,35 +1490,7 @@ def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=
         cpu_limit: CPU limit (not implemented yet)
     """
     if "SOLUTION":
-        import subprocess
-        import os
-        
-        cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
-        
-        print(f"Setting up comprehensive cgroup Part 1: {cgroup_name}")
-        
-        # Create cgroup directory
-        os.makedirs(cgroup_path, exist_ok=True)
-        print(f"✓ Created cgroup directory: {cgroup_path}")
-        
-        # Enable controllers in parent cgroup
-        try:
-            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
-                f.write("+cpu +memory +pids")
-            print("✓ Enabled cgroup controllers")
-        except Exception as e:
-            print(f"Warning: Could not enable controllers: {e}")
-        
-        # Set memory limit if specified
-        if memory_limit:
-            memory_max_path = f"{cgroup_path}/memory.max"
-            try:
-                with open(memory_max_path, "w") as f:
-                    f.write(str(memory_limit))
-                print(f"✓ Set memory limit to {memory_limit}")
-            except Exception as e:
-                print(f"✗ Error setting memory limit: {e}")
-                return None
+        cgroup_path = create_cgroup(cgroup_name=cgroup_name, memory_limit=None, cpu_limit=None)
         
         # Disable swap for this cgroup (CRITICAL for memory limits to work properly)
         try:
