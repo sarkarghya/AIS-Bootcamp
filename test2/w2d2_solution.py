@@ -252,12 +252,49 @@ def parse_image_reference(image_ref: str) -> Tuple[str, str, str]:
         return registry, image, tag
     else:
         # TODO: Implement image reference parsing
-        # Handle different formats:
-        # - Full URLs with https://
-        # - Docker Hub shorthand (no registry specified)
-        # - Custom registries (has dots in first part)
-        # - Extract registry, image, and tag components
-        pass
+        # Step 1: Check if image_ref starts with 'http' to detect full URLs
+        if image_ref.startswith('http'):
+            # Remove 'https://' or 'http://' prefix and split by '/'
+            parts = image_ref.replace('https://', '').replace('http://', '').split('/')
+            registry = parts[0]  # First part is registry hostname
+            
+            # Check if this is a manifest URL containing '/manifests/'
+            if '/manifests/' in image_ref:
+                # Extract image and tag: join parts[2:], then split on '/manifests/'
+                image_parts = '/'.join(parts[2:]).split('/manifests/')
+                image = image_parts[0]
+                tag = image_parts[1]
+            else:
+                # Regular URL: image is middle parts, tag is last part
+                image = '/'.join(parts[1:-1])
+                tag = parts[-1] if ':' in parts[-1] else 'latest'
+        else:
+            # Step 2: Handle Docker image format (e.g., "hello-world" or "gcr.io/project/image")
+            # Check if first part contains dots (custom registry like gcr.io)
+            if '/' in image_ref and image_ref.split('/')[0].count('.') > 0:
+                # Custom registry: split on first '/' to separate registry from image
+                parts = image_ref.split('/', 1)
+                registry = parts[0]
+                image_and_tag = parts[1]
+            else:
+                # Docker Hub: use default registry
+                registry = 'registry-1.docker.io'
+                image_and_tag = image_ref
+                # Add 'library/' prefix if no '/' in image name
+                if '/' not in image_and_tag:
+                    image_and_tag = f"library/{image_and_tag}"
+            
+            # Step 3: Split image and tag (tag comes after ':')
+            if ':' in image_and_tag:
+                # Split on last ':' to handle images with ':' in repository name
+                image, tag = image_and_tag.rsplit(':', 1)
+            else:
+                # No tag specified, use 'latest'
+                image = image_and_tag
+                tag = 'latest'
+        
+        # Step 4: Return the three components as a tuple
+        return registry, image, tag
 
 def test_parse_image_reference(parse_image_reference):
     """Test the image reference parsing function."""
@@ -290,7 +327,7 @@ test_parse_image_reference(parse_image_reference)
 
 # %%
 """
-## Exercise 1.2: Docker Registry Authentication
+## Exercise 1.2: Docker Registry Authentication (Optional)
 
 Implement authentication with Docker registries using token-based authentication.
 
@@ -345,13 +382,16 @@ def get_auth_token(registry: str, image: str) -> Dict[str, str]:
             headers['Authorization'] = f'Bearer {token}'
         return headers
     else:
-        # TODO: Implement authentication
-        # For Docker Hub (registry-1.docker.io):
-        # - Request token from auth.docker.io
-        # - Include service and scope parameters
-        # - Return Authorization header with Bearer token
-        # For other registries: return empty headers for now
-        pass
+        # TODO: Authentication implementation
+        headers = {}
+        if registry == 'registry-1.docker.io':
+            # Get auth token for Docker Hub
+            token_url = f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{image}:pull"
+            token_resp = requests.get(token_url)
+            token_resp.raise_for_status()
+            token = token_resp.json()['token']
+            headers['Authorization'] = f'Bearer {token}'
+        return headers
 
 def test_get_auth_token(get_auth_token):
     """Test the authentication token retrieval."""
@@ -468,12 +508,54 @@ def get_target_manifest(registry: str, image: str, tag: str, headers: Dict[str, 
         return manifest_digest
     else:
         # TODO: Implement manifest discovery
-        # 1. Build manifest list URL
-        # 2. Make HTTP request with headers
-        # 3. Parse JSON response
-        # 4. Find manifest matching target_arch and target_variant
-        # 5. Return the digest, or raise ValueError if not found
-        pass
+        # Step 1: Build manifest list URL using f-string
+        manifest_list_url = f"https://{registry}/v2/{image}/manifests/{tag}"
+        print(f"Fetching manifest list from: {manifest_list_url}")
+        
+        # Step 2: Make HTTP request with authentication headers
+        resp = requests.get(manifest_list_url, headers=headers)
+        resp.raise_for_status()  # Raises exception if HTTP error
+        
+        # Step 3: Parse JSON response to get manifest list
+        manifest_list = resp.json()
+        
+        # Step 4: Find manifest matching target architecture
+        target_manifest = None
+        for manifest in manifest_list.get('manifests', []):
+            platform = manifest.get('platform', {})
+            
+            # Check if architecture matches
+            if platform.get('architecture') == target_arch:
+                # If target_variant is specified, check that too
+                if target_variant:
+                    if platform.get('variant') == target_variant:
+                        target_manifest = manifest
+                        break  # Found exact match
+                else:
+                    # No variant specified, take first architecture match
+                    target_manifest = manifest
+                    break
+        
+        # Step 5: Handle case where no matching manifest found
+        if not target_manifest:
+            # Build helpful error message with available architectures
+            available_archs = []
+            for manifest in manifest_list.get('manifests', []):
+                platform = manifest.get('platform', {})
+                arch_str = platform.get('architecture', 'unknown')
+                if platform.get('variant'):
+                    arch_str += f" {platform.get('variant')}"
+                available_archs.append(arch_str)
+            
+            # Raise ValueError with detailed information
+            raise ValueError(f"No manifest found for architecture {target_arch}"
+                           f"{f' variant {target_variant}' if target_variant else ''}. "
+                           f"Available: {', '.join(available_archs)}")
+        
+        # Step 6: Extract and return the manifest digest
+        manifest_digest = target_manifest['digest']
+        print(f"Found manifest for {target_arch}: {manifest_digest}")
+        return manifest_digest
 
 def test_get_target_manifest(get_target_manifest, get_auth_token):
     """Test the manifest discovery function."""
@@ -576,12 +658,28 @@ def get_manifest_layers(registry: str, image: str, manifest_digest: str, headers
         return layers
     else:
         # TODO: Implement manifest processing
-        # 1. Build manifest URL using digest
-        # 2. Add Accept header for v2 manifest format
-        # 3. Make HTTP request
-        # 4. Parse JSON and extract layers
-        # 5. Return list of layer dictionaries
-        pass
+        # Step 1: Build manifest URL using the digest
+        manifest_url = f"https://{registry}/v2/{image}/manifests/{manifest_digest}"
+        
+        # Step 2: Add Accept header for v2 manifest format (important!)
+        headers_copy = headers.copy()  # Don't modify original headers
+        headers_copy['Accept'] = 'application/vnd.docker.distribution.manifest.v2+json'
+        
+        # Step 3: Make HTTP request to fetch the manifest
+        print(f"Fetching manifest from: {manifest_url}")
+        resp = requests.get(manifest_url, headers=headers_copy)
+        resp.raise_for_status()  # Raises exception if HTTP error
+        
+        # Step 4: Parse JSON response to get manifest data
+        manifest = resp.json()
+        
+        # Step 5: Extract layers array from manifest
+        print(f"Manifest type: {manifest.get('mediaType', 'unknown')}")
+        layers = manifest.get('layers', [])  # Get 'layers' key, default to empty list
+        print(f"Number of layers: {len(layers)}")
+        
+        # Step 6: Return the list of layer dictionaries
+        return layers
 
 def test_get_manifest_layers(get_manifest_layers, get_auth_token, get_target_manifest):
     """Test the manifest processing function."""
@@ -648,6 +746,24 @@ Each layer is a gzipped tar archive that needs to be extracted in order.
 > You should spend up to ~20 minutes on this exercise.
 
 Implement the `download_and_extract_layers` function that downloads and extracts all layers.
+
+**API Usage Instructions:**
+
+1. **Docker Registry Blob URL Format**: `https://{registry}/v2/{image}/blobs/{digest}`
+   - Example: `https://registry-1.docker.io/v2/library/hello-world/blobs/sha256:abc123...`
+
+2. **Streaming Downloads**: Use `requests.get(url, headers=headers, stream=True)` for large files
+   - This prevents loading entire blobs into memory at once
+   - Call `.raise_for_status()` to check for HTTP errors
+
+3. **Gzipped Tar Extraction**: Layers are stored as compressed tar archives
+   - Use `BytesIO(blob_resp.content)` to create a file-like object from downloaded bytes
+   - Use `tarfile.open(fileobj=BytesIO(...), mode='r:gz')` to read gzipped tar from memory
+   - Extract with `tar.extractall(output_dir)` to unpack all files
+
+4. **Layer Processing**: Process layers in order to build the filesystem layer by layer
+   - Each layer represents filesystem changes (additions, modifications, deletions)
+   - Later layers override earlier layers (like Git commits)
 """
 
 def download_and_extract_layers(registry: str, image: str, layers: List[Dict[str, any]], 
@@ -685,13 +801,31 @@ def download_and_extract_layers(registry: str, image: str, layers: List[Dict[str
         print(f"\n✓ Extracted {len(layers)} layers to {output_dir}")
     else:
         # TODO: Implement layer download and extraction
-        # 1. Create output directory
-        # 2. For each layer:
-        #    a. Build blob URL using digest
-        #    b. Download blob with streaming
-        #    c. Extract as gzipped tar to output_dir
-        # 3. Print progress information
-        pass
+        # Step 1: Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Step 2: Process each layer in order (order matters!)
+        for i, layer in enumerate(layers):
+            # Get layer information
+            digest = layer['digest']  # SHA256 hash of the layer
+            size = layer.get('size', 0)  # Size in bytes
+            print(f"\nProcessing layer {i + 1}/{len(layers)}: {digest} ({size} bytes)")
+            
+            # Step 2a: Build blob URL using digest
+            blob_url = f"https://{registry}/v2/{image}/blobs/{digest}"
+            
+            # Step 2b: Download blob with streaming (important for large files!)
+            blob_resp = requests.get(blob_url, headers=headers, stream=True)
+            blob_resp.raise_for_status()  # Check for HTTP errors
+            
+            # Step 2c: Extract as gzipped tar to output_dir
+            print(f"  Extracting to {output_dir}...")
+            # Use BytesIO to create file-like object from downloaded bytes
+            with tarfile.open(fileobj=BytesIO(blob_resp.content), mode='r:gz') as tar:
+                tar.extractall(output_dir)
+        
+        # Step 3: Print completion information
+        print(f"\n✓ Extracted {len(layers)} layers to {output_dir}")
 
 def test_download_and_extract_layers(download_and_extract_layers, get_auth_token, 
                                    get_target_manifest, get_manifest_layers):
@@ -802,13 +936,30 @@ def pull_layers(image_ref: str, output_dir: str, target_arch: str = TARGET_ARCH,
         print(f"  Architecture: {target_arch}{f' variant {target_variant}' if target_variant else ''}")
     else:
         # TODO: Implement complete pull_layers function
-        # Use all the functions you've implemented above:
-        # 1. parse_image_reference()
-        # 2. get_auth_token()
-        # 3. get_target_manifest()
-        # 4. get_manifest_layers()
-        # 5. download_and_extract_layers()
-        pass
+        # Step 1: Parse image reference to get registry, image name, and tag
+        registry, image, tag = parse_image_reference(image_ref)
+        
+        # Print what we're doing
+        print(f"Registry: {registry}")
+        print(f"Image: {image}")
+        print(f"Tag: {tag}")
+        print(f"Target architecture: {target_arch}{f' variant {target_variant}' if target_variant else ''}")
+        
+        # Step 2: Get authentication headers for this registry and image
+        headers = get_auth_token(registry, image)
+        
+        # Step 3: Get the manifest digest for our target architecture
+        manifest_digest = get_target_manifest(registry, image, tag, headers, target_arch, target_variant)
+        
+        # Step 4: Get the list of layers from the manifest
+        layers = get_manifest_layers(registry, image, manifest_digest, headers)
+        
+        # Step 5: Download and extract all layers to the output directory
+        download_and_extract_layers(registry, image, layers, headers, output_dir)
+        
+        # Print success message
+        print(f"✓ Successfully extracted {image_ref} to {output_dir}")
+        print(f"  Architecture: {target_arch}{f' variant {target_variant}' if target_variant else ''}")
 
 def test_pull_layers_complete(pull_layers):
     """Test the complete pull_layers function."""
@@ -980,13 +1131,43 @@ def run_chroot(chroot_dir: str, command: Optional[Union[str, List[str]]] = None)
             return None
     else:
         # TODO: Implement chroot command execution
-        # 1. Handle different command formats (None, string, list)
-        # 2. Build the chroot command: ['chroot', chroot_dir] + command
-        # 3. Execute with subprocess.run() with timeout and output capture
-        # 4. Print execution details and results
-        # 5. Handle TimeoutExpired and other exceptions
-        # 6. Return the result or None on error
-        pass
+        # Step 1: Handle different command formats (None, string, list)
+        if command is None:
+            command = ['/bin/sh']  # Default to interactive shell
+        elif isinstance(command, str):
+            # Wrap string commands in shell -c for execution
+            command = ['/bin/sh', '-c', command]
+        # If command is already a list, use it as-is
+        
+        print(f"Running chroot {chroot_dir} with command: {' '.join(command)}")
+        
+        # Step 2: Build the chroot command: ['chroot', chroot_dir] + command
+        full_command = ['chroot', chroot_dir] + command
+        
+        # Step 3: Execute with subprocess.run() with timeout and output capture
+        try:
+            result = subprocess.run(full_command, 
+                                  capture_output=True,  # Capture stdout and stderr
+                                  text=True,           # Return strings, not bytes
+                                  timeout=30)          # 30 second timeout
+            
+            # Step 4: Print execution details and results
+            print(f"Exit code: {result.returncode}")
+            if result.stdout:
+                print(f"stdout:\n{result.stdout}")
+            if result.stderr:
+                print(f"stderr:\n{result.stderr}")
+            
+            # Step 6: Return the result
+            return result
+            
+        # Step 5: Handle TimeoutExpired and other exceptions
+        except subprocess.TimeoutExpired:
+            print("Command timed out after 30 seconds")
+            return None
+        except Exception as e:
+            print(f"Error running chroot: {e}")
+            return None
 
 def test_run_chroot(run_chroot):
     """Test the chroot command execution function."""
@@ -1171,11 +1352,36 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
         return cgroup_path
     else:
         # TODO: Implement basic cgroup creation
-        # 1. Create cgroup directory under /sys/fs/cgroup/
-        # 2. Enable controllers (+cpu +memory +pids) in parent cgroup
-        # 3. Set memory limit if specified
-        # 4. Return the cgroup path
-        pass
+        import subprocess
+        import os
+        
+        # Step 1: Create cgroup directory under /sys/fs/cgroup/
+        cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
+        os.makedirs(cgroup_path, exist_ok=True)  # exist_ok=True means don't error if exists
+        print(f"Created cgroup directory: {cgroup_path}")
+        
+        # Step 2: Enable controllers (+cpu +memory +pids) in parent cgroup
+        try:
+            # Write to the parent cgroup's subtree_control file to enable controllers
+            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
+                f.write("+cpu +memory +pids")  # Enable CPU, memory, and PID controllers
+            print("Enabled cgroup controllers")
+        except Exception as e:
+            print(f"Warning: Could not enable controllers: {e}")
+        
+        # Step 3: Set memory limit if specified
+        if memory_limit:
+            memory_max_path = f"{cgroup_path}/memory.max"
+            try:
+                # Write the memory limit to the memory.max file
+                with open(memory_max_path, "w") as f:
+                    f.write(str(memory_limit))  # Convert to string (e.g., "100M")
+                print(f"Set memory limit to {memory_limit}")
+            except Exception as e:
+                print(f"Error setting memory limit: {e}")
+        
+        # Step 4: Return the cgroup path
+        return cgroup_path
 
 def test_create_cgroup(create_cgroup):
     """Test the basic cgroup creation function."""
@@ -1251,10 +1457,25 @@ def add_process_to_cgroup(cgroup_name, pid=None):
             return False
     else:
         # TODO: Implement process assignment to cgroup
-        # 1. Use current process PID if none specified
-        # 2. Write PID to cgroup.procs file
-        # 3. Handle errors and return success status
-        pass
+        import os
+        
+        # Step 1: Use current process PID if none specified
+        if pid is None:
+            pid = os.getpid()  # Get current process ID
+        
+        # Step 2: Write PID to cgroup.procs file
+        cgroup_procs_path = f"/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
+        
+        # Step 3: Handle errors and return success status
+        try:
+            # Write the PID to the cgroup.procs file to add process to cgroup
+            with open(cgroup_procs_path, "w") as f:
+                f.write(str(pid))  # Convert PID to string
+            print(f"Added process {pid} to cgroup {cgroup_name}")
+            return True  # Success
+        except Exception as e:
+            print(f"Error adding process to cgroup: {e}")
+            return False  # Failure
 
 def test_add_process_to_cgroup(add_process_to_cgroup, create_cgroup):
     """Test the process assignment function."""
@@ -1327,8 +1548,10 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
             command = ['/bin/sh', '-c', command]
         
         # Create a shell script that adds the process to cgroup then chroots
+        # First add current process to cgroup, then execute chroot
+        add_process_to_cgroup(cgroup_name)
+        
         script = f"""
-        echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
         chroot {chroot_dir} {' '.join(command)}
         """
         
@@ -1344,19 +1567,51 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
             return None
     else:
         # TODO: Implement combined cgroup-chroot execution
-        # 1. Create cgroup with memory limit
-        # 2. Handle command format (None, string, list)
-        # 3. Create shell script that:
-        #    - Adds process to cgroup
-        #    - Executes chroot with command
-        # 4. Run with timeout and error handling
-        pass
+        # Step 1: Create cgroup with memory limit
+        create_cgroup(cgroup_name, memory_limit=memory_limit)
+        
+        # Step 2: Handle command format (None, string, list)
+        if command is None:
+            command = ['/bin/sh']  # Default to shell
+        elif isinstance(command, str):
+            command = ['/bin/sh', '-c', command]  # Wrap string in shell -c
+        
+        # Step 3: Add current process to cgroup BEFORE running chroot
+        add_process_to_cgroup(cgroup_name)
+        
+        # Step 4: Create shell script that executes chroot with command
+        script = f"""
+        chroot {chroot_dir} {' '.join(command)}
+        """
+        
+        # Step 5: Run with timeout and error handling
+        try:
+            # Run without capturing output so we see it in real-time
+            result = subprocess.run(['sh', '-c', script], timeout=60)
+            return result
+        except subprocess.TimeoutExpired:
+            print("Command timed out after 60 seconds")
+            return None
+        except Exception as e:
+            print(f"Error running command: {e}")
+            return None
 
-def test_memory_simple(cgroup_name="demo", memory_limit="100M"):
+def test_run_in_cgroup_chroot(run_in_cgroup_chroot, cgroup_name="demo_comprehensive", memory_limit="50M"):
     """
-    Simple memory test that matches the user's manual example exactly
+    Combined test function that tests both basic cgroup-chroot execution and memory allocation limits.
     """
-    print(f"Testing memory allocation with {memory_limit} limit:")
+    print("Testing combined cgroup-chroot execution...")
+    
+    # Test 1: Basic command execution
+    print("\n1. Testing basic command execution:")
+    result = run_in_cgroup_chroot("test_combined", "./extracted_alpine", "echo 'Hello from container!'")
+    if result:
+        print(f"✓ Basic combined execution completed with exit code: {result.returncode}")
+    else:
+        print("⚠ Basic combined execution failed")
+
+    # Test 2: Memory allocation test
+    print(f"\n2. Testing memory allocation with {memory_limit} limit:")
     print("(This should show allocations and then get killed)")
     
     # Create cgroup
@@ -1415,28 +1670,13 @@ EOF
         else:
             print(f"\n? Process exited with code {process.returncode}")
         
-        return process.returncode
     except subprocess.TimeoutExpired:
-        print("\n✗ Test timed out")
-        return None
+        print("\n✗ Memory test timed out")
     except Exception as e:
-        print(f"\n✗ Error: {e}")
-        return None
-
-def test_run_in_cgroup_chroot(run_in_cgroup_chroot):
-    """Test the combined cgroup-chroot execution function."""
-    print("Testing combined cgroup-chroot execution...")
+        print(f"\n✗ Memory test error: {e}")
     
-    # Test basic command execution
-    result = run_in_cgroup_chroot("test_combined", "./extracted_alpine", "echo 'Hello from container!'")
-    if result:
-        print(f"✓ Basic combined execution completed with exit code: {result.returncode}")
-    else:
-        print("⚠ Basic combined execution failed")
-
-    test_memory_simple(cgroup_name="demo_comprehensive", memory_limit="50M")
-    
-    print("✓ Combined cgroup-chroot tests completed!\n" + "=" * 60)
+    print("\n✓ Combined cgroup-chroot tests completed!\n" + "=" * 60)
+    return True
 
 test_run_in_cgroup_chroot(run_in_cgroup_chroot)
 
@@ -1444,21 +1684,28 @@ test_run_in_cgroup_chroot(run_in_cgroup_chroot)
 """
 ## Exercise 4: Comprehensive Cgroup Setup (Part 1)
 
-This exercise implements the first part of comprehensive cgroup configuration with better memory management and error handling.
+This exercise implements core memory management features that form the foundation 
+of effective container resource isolation. Part 1 focuses on the critical memory 
+controls needed to make resource limits actually work in production.
 
-### Exercise - implement create_cgroup_comprehensive (basic setup)
+### Exercise - implement create_cgroup_comprehensive_part1 (core memory management)
 
 > **Difficulty**: 🔴🔴🔴🔴⚪  
-> **Importance**: 🔵🔵🔵🔵⚪
+> **Importance**: 🔵🔵🔵🔵🔵
 > 
-> You should spend up to ~15 minutes on this exercise.
+> You should spend up to ~20 minutes on this exercise.
 
-Implement the basic setup part of `create_cgroup_comprehensive`.
+Implement comprehensive memory management including swap control, which is essential
+for memory limits to function properly in containerized environments.
 """
 
 def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=None):
     """
-    Create a cgroup with comprehensive settings - Part 1: Basic setup
+    Create a cgroup with comprehensive settings - Part 1: Core Memory Management
+    
+    This implements the foundational memory management features needed for effective
+    container resource isolation, including swap control which is critical for 
+    memory limits to work properly.
     
     Args:
         cgroup_name: Name of the cgroup (e.g., 'demo')
@@ -1471,7 +1718,7 @@ def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=
         
         cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
         
-        print(f"Setting up comprehensive cgroup: {cgroup_name}")
+        print(f"Setting up comprehensive cgroup Part 1: {cgroup_name}")
         
         # Create cgroup directory
         os.makedirs(cgroup_path, exist_ok=True)
@@ -1496,13 +1743,57 @@ def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=
                 print(f"✗ Error setting memory limit: {e}")
                 return None
         
+        # Disable swap for this cgroup (CRITICAL for memory limits to work properly)
+        try:
+            swap_max_path = f"{cgroup_path}/memory.swap.max"
+            with open(swap_max_path, "w") as f:
+                f.write("0")
+            print("✓ Disabled swap for cgroup (critical for memory limits)")
+        except Exception as e:
+            print(f"Warning: Could not disable swap: {e}")
+        
+        # Set memory pressure threshold for early warning
+        try:
+            memory_high_path = f"{cgroup_path}/memory.high"
+            if memory_limit and memory_limit.endswith('M'):
+                # Set high threshold to 80% of max limit
+                high_limit = int(int(memory_limit[:-1]) * 0.8)
+                with open(memory_high_path, "w") as f:
+                    f.write(f"{high_limit}M")
+                print(f"✓ Set memory pressure threshold to {high_limit}M")
+        except Exception as e:
+            print(f"Warning: Could not set memory pressure threshold: {e}")
+        
+        # Validate memory configuration
+        if memory_limit and os.path.exists(memory_max_path):
+            try:
+                with open(memory_max_path, "r") as f:
+                    actual_limit = f.read().strip()
+                print(f"✓ Memory configuration validated: {actual_limit}")
+                
+                # Check swap is actually disabled
+                if os.path.exists(swap_max_path):
+                    with open(swap_max_path, "r") as f:
+                        swap_setting = f.read().strip()
+                    if swap_setting == "0":
+                        print("✓ Swap successfully disabled")
+                    else:
+                        print(f"⚠ Warning: Swap setting is {swap_setting}, expected 0")
+                        
+            except Exception as e:
+                print(f"Warning: Could not validate memory configuration: {e}")
+        
+        print(f"✓ Part 1 - Core memory management setup complete")
         return cgroup_path
     else:
-        # TODO: Implement comprehensive cgroup creation - Part 1
-        # 1. Create cgroup directory with better error handling
-        # 2. Enable controllers with proper error checking
+        # TODO: Implement comprehensive cgroup creation - Part 1: Core Memory Management
+        # 1. Create cgroup directory with proper error handling
+        # 2. Enable controllers (+cpu +memory +pids)
         # 3. Set memory limits with validation
-        # 4. Return None if any critical step fails
+        # 4. Disable swap (CRITICAL - write "0" to memory.swap.max)
+        # 5. Set memory pressure threshold (memory.high to 80% of max)
+        # 6. Validate all memory settings
+        # 7. Return cgroup path or None if critical steps fail
         pass
 
 def test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1):
@@ -1533,21 +1824,26 @@ test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1)
 """
 ## Exercise 5: Comprehensive Cgroup Setup (Part 2)
 
-This final exercise completes the comprehensive memory management with swap control and OOM settings.
+This exercise builds on Part 1 by adding advanced Out-of-Memory (OOM) handling, 
+process management, and monitoring capabilities needed for production-ready container isolation.
 
-### Exercise - implement create_cgroup_comprehensive (complete)
+### Exercise - implement create_cgroup_comprehensive (advanced OOM and process management)
 
 > **Difficulty**: 🔴🔴🔴🔴🔴  
 > **Importance**: 🔵🔵🔵🔵🔵
 > 
-> You should spend up to ~20 minutes on this exercise.
+> You should spend up to ~25 minutes on this exercise.
 
-Implement the complete `create_cgroup_comprehensive` function with all advanced features.
+Implement advanced OOM group killing, process assignment, and comprehensive verification
+that builds on the core memory management from Part 1.
 """
 
 def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
     """
-    Create a cgroup with comprehensive settings to ensure memory limits work properly
+    Create a cgroup with comprehensive settings - Part 2: Advanced OOM and Process Management
+    
+    This builds on Part 1 by adding advanced Out-of-Memory handling, process assignment,
+    and comprehensive monitoring capabilities for production-ready container isolation.
     
     Args:
         cgroup_name: Name of the cgroup (e.g., 'demo')
@@ -1558,64 +1854,43 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         import subprocess
         import os
         
-        cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
+        print(f"Setting up comprehensive cgroup Part 2: {cgroup_name}")
         
-        print(f"Setting up comprehensive cgroup: {cgroup_name}")
+        # Start with Part 1 - Core Memory Management
+        cgroup_path = create_cgroup_comprehensive_part1(cgroup_name, memory_limit, cpu_limit)
+        if not cgroup_path:
+            print("✗ Part 1 setup failed, cannot continue with Part 2")
+            return None
         
-        # Create cgroup directory
-        os.makedirs(cgroup_path, exist_ok=True)
-        print(f"✓ Created cgroup directory: {cgroup_path}")
-        
-        # Enable controllers in parent cgroup
-        try:
-            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
-                f.write("+cpu +memory +pids")
-            print("✓ Enabled cgroup controllers")
-        except Exception as e:
-            print(f"Warning: Could not enable controllers: {e}")
-        
-        # Set memory limit if specified
-        if memory_limit:
-            memory_max_path = f"{cgroup_path}/memory.max"
-            try:
-                with open(memory_max_path, "w") as f:
-                    f.write(str(memory_limit))
-                print(f"✓ Set memory limit to {memory_limit}")
-            except Exception as e:
-                print(f"✗ Error setting memory limit: {e}")
-                return None
-        
-        # Disable swap for this cgroup (forces hard memory limit)
-        try:
-            swap_max_path = f"{cgroup_path}/memory.swap.max"
-            with open(swap_max_path, "w") as f:
-                f.write("0")
-            print("✓ Disabled swap for cgroup")
-        except Exception as e:
-            print(f"Warning: Could not disable swap: {e}")
+        print(f"✓ Part 1 complete, continuing with Part 2 - Advanced OOM and Process Management")
         
         # Set OOM killer to be more aggressive for this cgroup
         try:
             oom_group_path = f"{cgroup_path}/memory.oom.group"
             with open(oom_group_path, "w") as f:
                 f.write("1")
-            print("✓ Enabled OOM group killing")
+            print("✓ Enabled OOM group killing (kills entire process group on OOM)")
         except Exception as e:
             print(f"Warning: Could not set OOM group: {e}")
         
         # Add current process to cgroup and set up OOM score adjustment
         try:
-            # Add process to cgroup
-            cgroup_procs_path = f"{cgroup_path}/cgroup.procs"
-            with open(cgroup_procs_path, "w") as f:
-                f.write(str(os.getpid()))
-            print(f"✓ Added current process to cgroup")
+            # Add process to cgroup using the existing function
+            if add_process_to_cgroup(cgroup_name):
+                print(f"✓ Added current process to cgroup")
+            else:
+                print(f"⚠ Warning: Could not add process to cgroup")
             
             # Set oom_score_adj to make this process more likely to be killed
             with open("/proc/self/oom_score_adj", "w") as f:
                 f.write("1000")
-            print("✓ Set OOM score adjustment to 1000")
+            print("✓ Set OOM score adjustment to 1000 (highest priority for killing)")
             
+        except Exception as e:
+            print(f"Warning: Could not configure process OOM settings: {e}")
+        
+        # Comprehensive verification and monitoring setup
+        try:
             # Verify we're in the cgroup
             with open("/proc/self/cgroup", "r") as f:
                 cgroup_info = f.read()
@@ -1624,51 +1899,75 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
             else:
                 print(f"⚠ Process may not be in cgroup: {cgroup_name}")
             
-            # Verify memory limits
+            # Verify all memory settings
+            memory_max_path = f"{cgroup_path}/memory.max"
             if os.path.exists(memory_max_path):
                 with open(memory_max_path, "r") as f:
                     memory_max = f.read().strip()
                 print(f"✓ Memory limit confirmed: {memory_max}")
                 
-                # Check memory.high if it exists
+                # Check memory.high threshold
                 memory_high_path = f"{cgroup_path}/memory.high"
                 if os.path.exists(memory_high_path):
                     with open(memory_high_path, "r") as f:
                         memory_high = f.read().strip()
-                    print(f"✓ Memory high: {memory_high}")
+                    print(f"✓ Memory pressure threshold: {memory_high}")
+                
+                # Check current memory usage
+                memory_current_path = f"{cgroup_path}/memory.current"
+                if os.path.exists(memory_current_path):
+                    with open(memory_current_path, "r") as f:
+                        memory_current = f.read().strip()
+                    print(f"✓ Current memory usage: {memory_current} bytes")
                 
         except Exception as e:
-            print(f"Warning: Could not fully configure process in cgroup: {e}")
+            print(f"Warning: Could not complete verification: {e}")
         
+        print(f"✓ Part 2 - Advanced OOM and process management complete")
+        print(f"✓ Full comprehensive cgroup setup finished for: {cgroup_name}")
         return cgroup_path
     else:
-        # TODO: Implement complete comprehensive cgroup creation
-        # 1. Start with Part 1 implementation (directory, controllers, memory limit)
-        # 2. Disable swap by writing "0" to memory.swap.max
-        # 3. Enable OOM group killing by writing "1" to memory.oom.group
-        # 4. Handle all errors gracefully
-        # 5. Return cgroup path or None if failed
+        # TODO: Implement comprehensive cgroup creation - Part 2: Advanced OOM and Process Management
+        # 1. Call create_cgroup_comprehensive_part1() to get the base setup
+        # 2. Enable OOM group killing (write "1" to memory.oom.group)
+        # 3. Use add_process_to_cgroup() to assign current process
+        # 4. Set OOM score adjustment (write "1000" to /proc/self/oom_score_adj)
+        # 5. Verify process is in cgroup (check /proc/self/cgroup)
+        # 6. Verify all memory settings and current usage
+        # 7. Return cgroup path or None if failed
         pass
 
 
-def test_memory_comprehensive(cgroup_name="demo2", memory_limit="100M"):
+def test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M"):
     """
     Comprehensive memory test that properly sets up cgroups with all necessary settings
-    including oom_score_adj to ensure the memory limit is enforced
+    including oom_score_adj to ensure the memory limit is enforced.
+    
+    This function forks a process to safely test memory limits without affecting the parent process.
     """
-    print(f"Testing memory allocation with {memory_limit} limit (comprehensive setup):")
-    print("(This should properly enforce the cgroup memory limit)")
-    
-    # Create cgroup with comprehensive settings
-    cgroup_path = create_cgroup_comprehensive(cgroup_name, memory_limit=memory_limit)
-    if not cgroup_path:
-        print("✗ Failed to create cgroup")
-        return None
-    
-    # Create the test script with proper oom_score_adj setting
-    script = f"""
-    # Run the memory test in chroot
-    chroot extracted_python/ /bin/sh << 'EOF'
+    print("Testing complete comprehensive cgroup creation with memory test...")
+    print("Forking process to run memory test...")
+
+    # Fork the process
+    pid = os.fork()
+
+    if pid == 0:
+        # Child process - run the memory test here
+        try:
+            print("Child process starting memory test...")
+            print(f"Testing memory allocation with {memory_limit} limit (comprehensive setup):")
+            print("(This should properly enforce the cgroup memory limit)")
+            
+            # Create cgroup with comprehensive settings
+            cgroup_path = create_cgroup_comprehensive(cgroup_name, memory_limit=memory_limit)
+            if not cgroup_path:
+                print("✗ Failed to create cgroup")
+                os._exit(1)
+            
+            # Create the test script with proper oom_score_adj setting
+            script = f"""
+            # Run the memory test in chroot
+            chroot extracted_python/ /bin/sh << 'EOF'
 python3 -c "
 import os
 import time
@@ -1687,85 +1986,82 @@ for i in range(200):  # Allocate up to 2GB if not killed
 print('Test completed - this should not be reached if limits work!')
 "
 EOF
-    """
+            """
+            
+            import subprocess
+            import signal
+            try:
+                # Use Popen to get real-time output
+                process = subprocess.Popen(['sh', '-c', script], 
+                                         stdout=subprocess.PIPE, 
+                                         stderr=subprocess.STDOUT,
+                                         universal_newlines=True)
+                
+                # Stream output in real-time
+                if process.stdout:
+                    for line in iter(process.stdout.readline, ''):
+                        print(line.strip())
+                
+                process.wait(timeout=60)
+                
+                # Check how the process ended
+                if process.returncode == 0:
+                    print("\n⚠ Process completed normally - cgroup memory limit NOT working")
+                    os._exit(0)
+                elif process.returncode == -signal.SIGKILL or process.returncode == 137:
+                    print("\n✓ Process was KILLED - cgroup memory limit working!")
+                    print("   Return code 137 = 128 + 9 (SIGKILL)")
+                    os._exit(0)
+                elif process.returncode < 0:
+                    print(f"\n✓ Process was killed by signal {-process.returncode}")
+                    os._exit(0)
+                else:
+                    print(f"\n? Process exited with code {process.returncode}")
+                    os._exit(process.returncode)
+                
+            except subprocess.TimeoutExpired:
+                print("\n✗ Test timed out")
+                os._exit(1)
+            except Exception as e:
+                print(f"\n✗ Error: {e}")
+                os._exit(1)
+
+        except Exception as e:
+            print(f"Child process error: {e}")
+            os._exit(1)
+        finally:
+            # Child must exit explicitly to avoid continuing parent code
+            os._exit(0)
+
+    else:
+        # Parent process - wait for child and report results
+        print(f"✓ Forked child process with PID: {pid}")
+        
+        try:
+            # Wait for child process to complete
+            _, status = os.waitpid(pid, 0)
+            
+            # Check how the child process ended
+            if os.WIFEXITED(status):
+                exit_code = os.WEXITSTATUS(status)
+                print(f"Child exited with code: {exit_code}")
+            elif os.WIFSIGNALED(status):
+                signal_num = os.WTERMSIG(status)
+                if signal_num == 9:  # SIGKILL
+                    print("✓ Child was KILLED by OOM - cgroup memory limit working!")
+                else:
+                    print(f"✓ Child was killed by signal {signal_num}")
+            
+            print("✓ Parent process continues running!")
+            
+        except Exception as e:
+            print(f"Error waiting for child: {e}")
     
-    import subprocess
-    import signal
-    try:
-        # Use Popen to get real-time output
-        process = subprocess.Popen(['sh', '-c', script], 
-                                 stdout=subprocess.PIPE, 
-                                 stderr=subprocess.STDOUT,
-                                 universal_newlines=True)
-        
-        # Stream output in real-time
-        if process.stdout:
-            for line in iter(process.stdout.readline, ''):
-                print(line.strip())
-        
-        process.wait(timeout=60)
-        
-        # Check how the process ended
-        if process.returncode == 0:
-            print("\n⚠ Process completed normally - cgroup memory limit NOT working")
-        elif process.returncode == -signal.SIGKILL or process.returncode == 137:
-            print("\n✓ Process was KILLED - cgroup memory limit working!")
-            print("   Return code 137 = 128 + 9 (SIGKILL)")
-        elif process.returncode < 0:
-            print(f"\n✓ Process was killed by signal {-process.returncode}")
-        else:
-            print(f"\n? Process exited with code {process.returncode}")
-        
-        return process.returncode
-    except subprocess.TimeoutExpired:
-        print("\n✗ Test timed out")
-        return None
-    except Exception as e:
-        print(f"\n✗ Error: {e}")
-        return None
+    print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
+    return True
 
-print("Testing complete comprehensive cgroup creation with memory test...")
-## UNCOMMENT THIS TO RUN THE TEST. Potential FIXME
-print("Forking process to run memory test...")
-
-# Fork the process
-pid = os.fork()
-
-if pid == 0:
-    # Child process - run the memory test here
-    try:
-        print("Child process starting memory test...")
-        test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
-    except Exception as e:
-        print(f"Child process error: {e}")
-    finally:
-        # Child must exit explicitly to avoid continuing parent code
-        os._exit(0)
-
-else:
-    # Parent process - wait for child and report results
-    print(f"✓ Forked child process with PID: {pid}")
-    
-    try:
-        # Wait for child process to complete
-        _, status = os.waitpid(pid, 0)
-        
-        # Check how the child process ended
-        if os.WIFEXITED(status):
-            exit_code = os.WEXITSTATUS(status)
-            print(f"Child exited with code: {exit_code}")
-        elif os.WIFSIGNALED(status):
-            signal_num = os.WTERMSIG(status)
-            if signal_num == 9:  # SIGKILL
-                print("✓ Child was KILLED by OOM - cgroup memory limit working!")
-            else:
-                print(f"✓ Child was killed by signal {signal_num}")
-        
-        print("✓ Parent process continues running!")
-        
-    except Exception as e:
-        print(f"Error waiting for child: {e}")
-print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
+# Run the test
+test_memory_comprehensive()
 # %%
 """
 ## Summary: Understanding Cgroups
@@ -1888,10 +2184,11 @@ def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memor
                 # Parent process - add child to cgroup then signal to continue
                 print(f"Started paused process {pid}, adding to cgroup {cgroup_name}")
                 
-                cgroup_procs_path = f"/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
-                with open(cgroup_procs_path, "w") as f:
-                    f.write(str(pid))
-                print(f"Added process {pid} to cgroup {cgroup_name}")
+                # Use the existing function to add process to cgroup
+                if add_process_to_cgroup(cgroup_name, pid):
+                    print(f"Added process {pid} to cgroup {cgroup_name}")
+                else:
+                    print(f"⚠ Warning: Could not add process {pid} to cgroup {cgroup_name}")
                 
                 # Signal child to continue
                 os.kill(pid, signal.SIGUSR1)
@@ -1977,6 +2274,9 @@ test_namespace_isolation()
 
 
 # %%
+# FIX ME: this reads a bit too much AI generated - unclear how this is relevant; and unclear how this tells them what to expect in the exercise that follows
+# FIX ME: What is NAT? I think there should be either be an explainer, or links to external explainer. in general, please add lots of links to external resources wherever applicable
+
 """
 # Container Networking
 
@@ -2028,7 +2328,10 @@ import signal
 A bridge network acts as a software switch that connects multiple network interfaces. 
 The first step is creating the bridge interface itself and configuring it with an IP address.
 
-Bash to bring bridge down: ip link set bridge0 down && ip link delete bridge0 && ip -all netns delete && for i in $(ip link | grep veth | awk '{print $2}' | cut -d: -f1); do ip link delete $i; done
+Bash to bring bridge down:
+```shell
+ip link set bridge0 down && ip link delete bridge0 && ip -all netns delete && for i in $(ip link | grep veth | awk '{print $2}' | cut -d: -f1); do ip link delete $i; done
+```
 
 ### Exercise - implement create_bridge_interface
 
@@ -2100,6 +2403,8 @@ def create_bridge_interface():
 
 def test_bridge_interface():
     """Test bridge interface creation"""
+
+    # FIX ME: test failing anywhere should cause the script to exit(1)
     print("Testing bridge interface creation...")
     
     result = create_bridge_interface()
