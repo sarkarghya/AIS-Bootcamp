@@ -1375,22 +1375,11 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
         # 4. Run with timeout and error handling
         pass
 
-def test_run_in_cgroup_chroot(run_in_cgroup_chroot, cgroup_name="demo_comprehensive", memory_limit="50M"):
+def test_memory_simple(cgroup_name="demo", memory_limit="100M"):
     """
-    Combined test function that tests both basic cgroup-chroot execution and memory allocation limits.
+    Simple memory test that matches the user's manual example exactly
     """
-    print("Testing combined cgroup-chroot execution...")
-    
-    # Test 1: Basic command execution
-    print("\n1. Testing basic command execution:")
-    result = run_in_cgroup_chroot("test_combined", "./extracted_alpine", "echo 'Hello from container!'")
-    if result:
-        print(f"✓ Basic combined execution completed with exit code: {result.returncode}")
-    else:
-        print("⚠ Basic combined execution failed")
-
-    # Test 2: Memory allocation test
-    print(f"\n2. Testing memory allocation with {memory_limit} limit:")
+    print(f"Testing memory allocation with {memory_limit} limit:")
     print("(This should show allocations and then get killed)")
     
     # Create cgroup
@@ -1449,13 +1438,28 @@ EOF
         else:
             print(f"\n? Process exited with code {process.returncode}")
         
+        return process.returncode
     except subprocess.TimeoutExpired:
-        print("\n✗ Memory test timed out")
+        print("\n✗ Test timed out")
+        return None
     except Exception as e:
-        print(f"\n✗ Memory test error: {e}")
+        print(f"\n✗ Error: {e}")
+        return None
+
+def test_run_in_cgroup_chroot(run_in_cgroup_chroot):
+    """Test the combined cgroup-chroot execution function."""
+    print("Testing combined cgroup-chroot execution...")
     
-    print("\n✓ Combined cgroup-chroot tests completed!\n" + "=" * 60)
-    return True
+    # Test basic command execution
+    result = run_in_cgroup_chroot("test_combined", "./extracted_alpine", "echo 'Hello from container!'")
+    if result:
+        print(f"✓ Basic combined execution completed with exit code: {result.returncode}")
+    else:
+        print("⚠ Basic combined execution failed")
+
+    test_memory_simple(cgroup_name="demo_comprehensive", memory_limit="50M")
+    
+    print("✓ Combined cgroup-chroot tests completed!\n" + "=" * 60)
 
 test_run_in_cgroup_chroot(run_in_cgroup_chroot)
 
