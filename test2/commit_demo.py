@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# Run the script before running the test
-
 import glob
 import os
 import random
@@ -49,7 +47,7 @@ def _run_bash_command(bash_script, show_realtime=False):
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-def _bocker_check(container_id):
+def _docker_check(container_id):
     """Check if container/image exists using Python subprocess"""
     btrfs_path = get_btrfs_path()
     try:
@@ -111,7 +109,7 @@ def _format_table_output(headers, rows):
     return '\n'.join(output)
 
 def init(args):
-    """Create an image from a directory and return the image ID: BOCKER init <directory>"""
+    """Create an image from a directory and return the image ID: DOCKER init <directory>"""
     if len(args) < 1:
         return None, 1
 
@@ -121,7 +119,7 @@ def init(args):
         return None, 1
 
     uuid = _generate_uuid("img_")
-    if _bocker_check(uuid):
+    if _docker_check(uuid):
         return init(args)
 
     btrfs_path = get_btrfs_path()
@@ -139,7 +137,7 @@ def init(args):
         return None, returncode
 
 def images(args):
-    """List images: BOCKER images"""
+    """List images: DOCKER images"""
     images_list = _list_images()
     if not images_list:
         print("IMAGE_ID\t\tSOURCE")
@@ -150,13 +148,13 @@ def images(args):
     return 0
 
 def rm(args):
-    """Delete an image or container: BOCKER rm <id>"""
+    """Delete an image or container: DOCKER rm <id>"""
     if len(args) < 1:
-        print("Usage: bocker rm <id>", file=sys.stderr)
+        print("Usage: python3 <filename> rm <id>", file=sys.stderr)
         return 1
 
     container_id = args[0]
-    if not _bocker_check(container_id):
+    if not _docker_check(container_id):
         print(f"No container named '{container_id}' exists", file=sys.stderr)
         return 1
 
@@ -169,7 +167,7 @@ def rm(args):
     return _run_bash_command(bash_script)
 
 def ps(args):
-    """List containers: BOCKER ps"""
+    """List containers: DOCKER ps"""
     containers = _list_containers()
     if not containers:
         print("CONTAINER_ID\t\tCOMMAND")
@@ -180,15 +178,15 @@ def ps(args):
     return 0
 
 def run(args):
-    """Create a container: BOCKER run <image_id> <command>"""
+    """Create a container: DOCKER run <image_id> <command>"""
     if len(args) < 2:
-        print("Usage: bocker run <image_id> <command>", file=sys.stderr)
+        print("Usage: python3 <filename> run <image_id> <command>", file=sys.stderr)
         return 1
 
     image_id = args[0]
     command = ' '.join(args[1:])
 
-    if not _bocker_check(image_id):
+    if not _docker_check(image_id):
         print(f"No image named '{image_id}' exists", file=sys.stderr)
         return 1
 
@@ -197,11 +195,8 @@ def run(args):
         return 1
 
     uuid = _generate_uuid("ps_")
-    if _bocker_check(uuid):
+    if _docker_check(uuid):
         return run(args)
-
-    ip_suffix = uuid[-3:].replace('0', '') or '1'
-    mac_suffix = f"{uuid[-3:-2]}:{uuid[-2:]}"
 
     btrfs_path = get_btrfs_path()
     bash_script = f"""
@@ -219,18 +214,18 @@ def run(args):
     return _run_bash_command(bash_script, show_realtime=True)
 
 def commit(args):
-    """Commit a container to an image: BOCKER commit <container_id> <image_id>"""
+    """Commit a container to an image: DOCKER commit <container_id> <image_id>"""
     if len(args) < 2:
-        print("Usage: bocker commit <container_id> <image_id>", file=sys.stderr)
+        print("Usage: python3 <filename> commit <container_id> <image_id>", file=sys.stderr)
         return 1
 
     container_id, image_id = args[0], args[1]
     
-    if not _bocker_check(container_id):
+    if not _docker_check(container_id):
         print(f"No container named '{container_id}' exists", file=sys.stderr)
         return 1
 
-    if not _bocker_check(image_id):
+    if not _docker_check(image_id):
         print(f"No image named '{image_id}' exists", file=sys.stderr)
         return 1
 
@@ -245,7 +240,7 @@ def commit(args):
 
 def test_commit():
     """Test commit functionality using wget installation pattern"""
-    print("Testing bocker commit...")
+    print("Testing docker commit...")
     
     # Test argument validation first
     returncode = commit([])
@@ -371,7 +366,7 @@ def test_commit():
                     print("SUCCESS: wget successfully fetched data from httpbin.org")
                 else:
                     print("Warning: wget HTTP request may have failed or returned unexpected data")
-                    # Don't fail the test as network issues might occur
+                    help_command()
                     
             except Exception as e:
                 print(f"Warning: Could not read wget HTTP logs: {e}")
@@ -380,15 +375,13 @@ def test_commit():
         rm([wget_http_container])
     else:
         print("Warning: Could not find wget HTTP request container")
-    
-    print("PASS: bocker commit test")
     return True
 
-def help_command(args):
+def help_command():
     """Display help message"""
-    help_text = """BOCKER - Simplified version to demonstrate commit functionality
+    help_text = """DOCKER - Simplified version to demonstrate commit functionality
 
-Usage: bocker [command] [args...]
+Usage: python3 <filename> [command] [args...]
 
 Commands:
   init     Create an image from a directory
@@ -397,52 +390,9 @@ Commands:
   run      Create a container
   commit   Commit a container to an image
   rm       Delete an image or container
-  demo     Run commit demonstration
   help     Display this message
-
-Commit Demo:
-  bocker demo   - Run a complete demonstration of commit functionality"""
+"""
     print(help_text)
     return 0
 
-def main():
-    """Main entry point"""
-    if len(sys.argv) == 1:
-        # Run demo by default
-        success = test_commit()
-        return 0 if success else 1
-
-    command = sys.argv[1]
-    args = sys.argv[2:] if len(sys.argv) > 2 else []
-
-    # Command mapping
-    command_map = {
-        'init': init,
-        'images': images,
-        'run': run,
-        'ps': ps,
-        'commit': commit,
-        'rm': rm,
-        'demo': lambda _: test_commit(),
-        'help': help_command
-    }
-
-    if command in command_map:
-        try:
-            if command == 'demo':
-                success = test_commit()
-                return 0 if success else 1
-            else:
-                return command_map[command](args)
-        except KeyboardInterrupt:
-            print("\nOperation cancelled by user", file=sys.stderr)
-            return 130
-        except Exception as e:
-            print(f"Unexpected error: {e}", file=sys.stderr)
-            return 1
-    else:
-        print(f"Unknown command: {command}", file=sys.stderr)
-        return help_command([])
-
-if __name__ == '__main__':
-    sys.exit(main())
+test_commit()
