@@ -101,29 +101,29 @@ Key characteristics of containers:
 
 Modern containerization relies on several Linux kernel features:
 
-1. **Namespaces**: Provide isolation of system resources
+1. **Namespaces**: Provide isolation of system resources ([Linux namespaces overview](https://lwn.net/Articles/531114/))
    - PID namespace: Process ID isolation
    - Mount namespace: Filesystem mount point isolation
-   - Network namespace: Network stack isolation
+   - Network namespace: Network stack isolation ([network namespaces tutorial](https://blog.scottlowe.org/2013/09/04/introducing-linux-network-namespaces/))
    - UTS namespace: Hostname and domain name isolation
    - User namespace: User and group ID isolation
    - IPC namespace: Inter-process communication isolation
 
-2. **Control Groups (cgroups)**: Resource limiting and accounting
+2. **Control Groups (cgroups)**: Resource limiting and accounting ([Red Hat cgroups guide](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/resource_management_guide/ch01))
    - Memory limits and usage tracking
    - CPU time and priority control
-   - I/O bandwidth limiting
+   - I/O bandwidth limiting ([cgroups v2 documentation](https://www.kernel.org/doc/Documentation/cgroup-v2.txt))
    - Device access control
 
 3. **Union Filesystems**: Layered filesystem management
-   - OverlayFS: Efficient copy-on-write filesystem
+   - OverlayFS: Efficient copy-on-write filesystem ([OverlayFS documentation](https://www.kernel.org/doc/Documentation/filesystems/overlayfs.txt))
    - AUFS: Another union filesystem (deprecated)
    - Device Mapper: Block-level storage driver
 
 4. **Security Features**: Additional isolation and access control
-   - Capabilities: Fine-grained privilege control
+   - Capabilities: Fine-grained privilege control ([Linux capabilities manual](https://man7.org/linux/man-pages/man7/capabilities.7.html))
    - SELinux/AppArmor: Mandatory access control
-   - Seccomp: System call filtering
+   - Seccomp: System call filtering ([seccomp tutorial](https://www.kernel.org/doc/Documentation/prctl/seccomp_filter.txt))
 
 ### Container Image Format
 
@@ -143,10 +143,10 @@ Container images are **layered filesystems** packaged in a standardized format. 
 ```
 
 This layered approach provides several benefits:
-- **Efficiency**: Common layers are shared between images
-- **Caching**: Unchanged layers don't need to be re-downloaded
-- **Version Control**: Similar to Git, each layer has a unique hash
-- **Security**: Individual layers can be scanned for vulnerabilities
+- **Efficiency**: Common layers are shared between images ([Docker layer sharing](https://docs.docker.com/storage/storagedriver/))
+- **Caching**: Unchanged layers don't need to be re-downloaded 
+- **Version Control**: Similar to Git, each layer has a unique hash ([content addressable storage](https://blog.docker.com/2016/02/docker-1-10/))
+- **Security**: Individual layers can be scanned for vulnerabilities ([container image scanning](https://docs.docker.com/docker-hub/vulnerability-scanning/))
 
 """
 
@@ -295,7 +295,7 @@ test_parse_image_reference(parse_image_reference)
 Implement authentication with Docker registries using token-based authentication.
 
 Docker registries require authentication to access images. Docker Hub uses a token-based 
-authentication system where you request a token for a specific repository scope.
+authentication system where you request a token for a specific repository scope. Learn more about the [Docker Registry HTTP API v2](https://docs.docker.com/registry/spec/api/) and [Docker Hub authentication flow](https://docs.docker.com/docker-hub/access-tokens/).
 
 The authentication flow:
 1. Request a token from the auth server
@@ -650,23 +650,23 @@ Each layer is a gzipped tar archive that needs to be extracted in order.
 > 
 > You should spend up to ~20 minutes on this exercise.
 
-Implement the `download_and_extract_layers` function that downloads and extracts all layers.
+Implement the `download_and_extract_layers` function that downloads and extracts all layers. Learn about [Docker image layers](https://docs.docker.com/storage/storagedriver/) and [tarfile processing in Python](https://docs.python.org/3/library/tarfile.html).
 
 **API Usage Instructions:**
 
-1. **Docker Registry Blob URL Format**: `https://{registry}/v2/{image}/blobs/{digest}`
+1. **Docker Registry Blob URL Format**: `https://{registry}/v2/{image}/blobs/{digest}` ([registry blob API](https://docs.docker.com/registry/spec/api/#pulling-a-layer))
    - Example: `https://registry-1.docker.io/v2/library/hello-world/blobs/sha256:abc123...`
 
-2. **Streaming Downloads**: Use `requests.get(url, headers=headers, stream=True)` for large files
+2. **Streaming Downloads**: Use `requests.get(url, headers=headers, stream=True)` for large files ([requests streaming guide](https://requests.readthedocs.io/en/latest/user/advanced/#streaming-requests))
    - This prevents loading entire blobs into memory at once
    - Call `.raise_for_status()` to check for HTTP errors
 
-3. **Gzipped Tar Extraction**: Layers are stored as compressed tar archives
+3. **Gzipped Tar Extraction**: Layers are stored as compressed tar archives ([gzip format specs](https://tools.ietf.org/html/rfc1952))
    - Use `BytesIO(blob_resp.content)` to create a file-like object from downloaded bytes
    - Use `tarfile.open(fileobj=BytesIO(...), mode='r:gz')` to read gzipped tar from memory
    - Extract with `tar.extractall(output_dir)` to unpack all files
 
-4. **Layer Processing**: Process layers in order to build the filesystem layer by layer
+4. **Layer Processing**: Process layers in order to build the filesystem layer by layer ([Docker layer concepts](https://www.docker.com/blog/docker-1-10/))
    - Each layer represents filesystem changes (additions, modifications, deletions)
    - Later layers override earlier layers (like Git commits)
 """
@@ -915,11 +915,11 @@ Implement chroot (change root) isolation, one of the fundamental isolation mecha
 
 Chroot creates a new root directory for processes, effectively "jailing" them within a specific 
 directory tree. This creates an isolated environment where the process cannot access files outside 
-the designated directory tree.
+the designated directory tree. Learn more about [chroot fundamentals](https://wiki.archlinux.org/title/Chroot) and the [chroot system call](https://man7.org/linux/man-pages/man2/chroot.2.html).
 
 Understanding chroot is essential for grasping how containers work under the hood. Docker and other 
 container runtimes use chroot (or more advanced variants) to isolate container filesystems from 
-the host system.
+the host system. See [how Docker uses chroot](https://docs.docker.com/engine/security/rootless/) and [container security best practices](https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html).
 
 <details>
 <summary>Vocabulary: Chroot and Filesystem Isolation</summary>
@@ -1113,11 +1113,11 @@ Implement cgroups (control groups) for resource management and isolation in cont
 
 Cgroups are a Linux kernel feature that provides resource management and isolation for containers. 
 They allow you to limit, account for, and isolate resource usage (CPU, memory, disk I/O, etc.) of 
-groups of processes.
+groups of processes. Learn about [cgroup concepts](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html) and [cgroup management](https://systemd.io/CGROUP_DELEGATION/).
 
 Cgroups are essential for container technology, providing the foundation for resource limits and 
 guarantees. Docker, Kubernetes, and other container orchestration systems rely heavily on cgroups 
-to manage resources fairly and prevent resource starvation.
+to manage resources fairly and prevent resource starvation. See how [Docker uses cgroups](https://docs.docker.com/config/containers/resource_constraints/) and [Kubernetes resource management](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/).
 
 <details>
 <summary>Vocabulary: Cgroups and Resource Management</summary>
@@ -1611,14 +1611,10 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         print(f"✓ Full comprehensive cgroup setup finished for: {cgroup_name}")
         return cgroup_path
     else:
-        # TODO: Implement comprehensive cgroup creation - Part 2: Advanced OOM and Process Management
-        # 1. Call create_cgroup_comprehensive_part1() to get the base setup
-        # 2. Enable OOM group killing (write "1" to memory.oom.group)
-        # 3. Use add_process_to_cgroup() to assign current process
-        # 4. Set OOM score adjustment (write "1000" to /proc/self/oom_score_adj)
-        # 5. Verify process is in cgroup (check /proc/self/cgroup)
-        # 6. Verify all memory settings and current usage
-        # 7. Return cgroup path or None if failed
+        # TODO: Part 2 implementation
+        # 1. Call create_cgroup_comprehensive_part1() 
+        # 2. Enable OOM group killing + assign process + set OOM score
+        # 3. Return cgroup path
         pass
 
 
@@ -1783,13 +1779,13 @@ Remember: These are the actual implementations used in real container systems!
 Implement namespace isolation for containers, providing process, network, and filesystem isolation.
 
 Linux namespaces are a feature of the Linux kernel that allows processes to have a view of system 
-resources that differs from other processes. There are several types of namespaces:
+resources that differs from other processes. Learn about [Linux namespaces in depth](https://man7.org/linux/man-pages/man7/namespaces.7.html) and [container isolation techniques](https://blog.quarkslab.com/digging-into-linux-namespaces-part-1.html). There are several types of namespaces:
 
-- **PID namespace**: Isolates process IDs - processes inside see different PIDs
+- **PID namespace**: Isolates process IDs - processes inside see different PIDs ([PID namespaces guide](https://lwn.net/Articles/531419/))
 - **Network namespace**: Isolates network interfaces, routing tables, firewall rules
-- **Mount namespace**: Isolates filesystem mount points
+- **Mount namespace**: Isolates filesystem mount points ([mount namespaces explained](https://lwn.net/Articles/689856/))
 - **UTS namespace**: Isolates hostname and domain name
-- **IPC namespace**: Isolates inter-process communication resources
+- **IPC namespace**: Isolates inter-process communication resources ([IPC namespaces overview](https://lwn.net/Articles/531114/))
 
 <details>
 <summary>Vocabulary: Linux Namespaces</summary>
@@ -1813,13 +1809,29 @@ resources that differs from other processes. There are several types of namespac
 > 
 > You should spend up to ~20 minutes on this exercise.
 
-Implement a function that runs a process in an isolated container environment using multiple namespaces.
+**Goal**: Implement a function that runs a process in an isolated container environment using multiple namespaces.
+
+**What you need to understand**:
+- **Fork**: Creates a copy of the current process. The child process gets PID 0, parent gets the child's actual PID
+- **Signal handling**: We use SIGUSR1 to coordinate between parent and child processes
+- **Unshare**: Linux command that creates new namespaces and runs a command in them
+- **Process synchronization**: Child waits for parent to set up cgroup before continuing
+
+**Implementation strategy**:
+1. **Fork** the process to create parent and child
+2. **Child process**: Set up signal handler, wait for parent's signal, then execute with namespace isolation
+3. **Parent process**: Add child to cgroup, signal child to continue, wait for completion
+
+**Key concepts**:
+- `os.fork()` returns 0 in child, child PID in parent
+- `signal.pause()` makes process wait until it receives a signal
+- `os.execvp()` replaces current process with new command
+- `unshare` command creates isolated namespaces before running the target command
 """
 
 import subprocess
 import os
 import signal
-
 
 def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memory_limit="100M"):
     """
@@ -1827,13 +1839,17 @@ def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memor
     
     Args:
         cgroup_name: Name of the cgroup to create/use
-        chroot_dir: Directory to chroot into
-        command: Command to run
-        memory_limit: Memory limit for the cgroup
+        chroot_dir: Directory to chroot into (must contain basic filesystem structure)
+        command: Command to run (defaults to /bin/sh if None)
+        memory_limit: Memory limit for the cgroup (e.g., "100M")
+    
+    Returns:
+        Exit code of the command, or None if error occurred
     """
-    # Create cgroup
+    # Create cgroup with memory limit
     create_cgroup(cgroup_name, memory_limit=memory_limit)
     
+    # Prepare command - default to shell if none provided
     if command is None:
         command = ['/bin/sh']
     elif isinstance(command, str):
@@ -1843,36 +1859,52 @@ def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memor
     
     if "SOLUTION":
         try:
-            # Fork to create child process
+            # Step 1: Fork to create child process
             pid = os.fork()
             
             if pid == 0:
-                # Child process - set up signal handler and wait
+                # CHILD PROCESS EXECUTION PATH
+                
+                # Step 2: Set up signal handler to receive SIGUSR1 from parent
                 def resume_handler(signum, frame):
-                    pass  # Just wake up from pause
+                    pass  # Just wake up from pause - no action needed
                 
                 signal.signal(signal.SIGUSR1, resume_handler)
                 print(f"Child process {os.getpid()} waiting for signal...")
-                signal.pause()  # Wait for SIGUSR1 from parent
+                
+                # Step 3: Wait for parent to add us to cgroup
+                signal.pause()  # Blocks until SIGUSR1 received
                 print(f"Child process {os.getpid()} resuming...")
                 
-                # Execute with namespace isolation using unshare command
-                os.execvp('unshare', ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', '--fork', 'chroot', chroot_dir] + command)
+                # Step 4: Execute with namespace isolation using unshare
+                # unshare creates new namespaces, then chroot isolates filesystem
+                os.execvp('unshare', [
+                    'unshare',
+                    '--pid',    # New PID namespace
+                    '--mount',  # New mount namespace  
+                    '--net',    # New network namespace
+                    '--uts',    # New hostname namespace
+                    '--ipc',    # New IPC namespace
+                    '--fork',   # Fork after creating namespaces
+                    'chroot', chroot_dir  # Change root directory
+                ] + command)
+                
             else:
-                # Parent process - add child to cgroup then signal to continue
+                # PARENT PROCESS EXECUTION PATH
+                
                 print(f"Started paused process {pid}, adding to cgroup {cgroup_name}")
                 
-                # Use the existing function to add process to cgroup
+                # Step 5: Add child process to cgroup for resource limits
                 if add_process_to_cgroup(cgroup_name, pid):
                     print(f"Added process {pid} to cgroup {cgroup_name}")
                 else:
                     print(f"⚠ Warning: Could not add process {pid} to cgroup {cgroup_name}")
                 
-                # Signal child to continue
+                # Step 6: Signal child to continue execution
                 os.kill(pid, signal.SIGUSR1)
                 print(f"Signaled process {pid} to continue")
                 
-                # Wait for child to complete
+                # Step 7: Wait for child process to complete
                 _, status = os.waitpid(pid, 0)
                 exit_code = os.WEXITSTATUS(status)
                 
@@ -1883,11 +1915,22 @@ def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memor
             print(f"Error running command: {e}")
             return None
     else:
-        # TODO: Implement namespace isolation
-        #   - Fork a child process
-        #   - In child: set up signal handler, wait for SIGUSR1, then exec with unshare
-        #   - In parent: add child to cgroup, signal to continue, wait for completion
-        #   - Use unshare with --pid --mount --net --uts --ipc --fork flags
+        # TODO: Implement namespace isolation following these steps:
+        
+        # Step 1: Fork a child process
+        
+        # Step 2: In child process:
+        #   - Set up signal handler for SIGUSR1
+        #   - Wait for parent's signal
+        #   - After receiving signal, use unshare command
+        #   - Unshare flags: --pid --mount --net --uts --ipc --fork
+        
+        # Step 3: In parent process:
+        #   - Add child PID to cgroup
+        #   - Send SIGUSR1 signal to child
+        #   - Wait for child completion
+        #   - Extract and return exit code
+        
         pass
 
 
@@ -1952,30 +1995,93 @@ test_namespace_isolation()
 
 
 # %%
-# FIX ME: this reads a bit too much AI generated - unclear how this is relevant; and unclear how this tells them what to expect in the exercise that follows
-# FIX ME: What is NAT? I think there should be either be an explainer, or links to external explainer. in general, please add lots of links to external resources wherever applicable
-
 """
-# Container Networking
+# Container Networking: Building a Real Container Network from Scratch
 
-Implement container networking using Linux bridges, virtual ethernet pairs (veth), and network namespaces.
+## The Problem You're Solving
 
-Container networking involves several key concepts:
-- **Bridge Networks**: Software switches that connect multiple network interfaces
-- **Virtual Ethernet Pairs (veth)**: Pairs of connected network interfaces that act like a virtual cable
-- **Network Namespaces**: Isolated network stacks with their own interfaces, routing tables, and firewall rules
-- **NAT (Network Address Translation)**: Allows containers with private IPs to access the internet
-- **iptables**: Linux firewall rules for packet filtering and NAT
+So far, your containers are isolated islands - they can't talk to each other or access the internet. 
+Real containers need networking to communicate with each other and the outside world. In this section, 
+you'll build the same networking infrastructure that Docker uses under the hood.
+
+**What you'll build**: A complete container network that allows:
+- Containers to communicate with each other
+- Containers to access the internet  
+- Host to communicate with containers
+- Network isolation between containers when needed
+
+## Your Network Architecture
+
+You'll create this step-by-step:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Host Network                         │
+│  ┌─────────────┐    ┌──────────────────────────────────┐   │
+│  │   eth0      │    │           bridge0               │   │
+│  │ (internet)  │    │        10.0.0.1/24              │   │
+│  │             │◄──►│                                  │   │
+│  └─────────────┘    │  ┌─────────┐    ┌─────────────┐  │   │
+│                     │  │ veth0   │    │   veth1     │  │   │
+│                     │  │         │    │             │  │   │
+│                     └──┼─────────┼────┼─────────────┼──┘   │
+│                        │         │    │             │      │
+│  ┌─────────────────────┼─────────┼────┼─────────────┼──┐   │
+│  │     Container A     │         │    │ Container B │  │   │
+│  │   (netns_A)         │         │    │ (netns_B)   │  │   │
+│  │  ┌─────────────┐    │         │    │             │  │   │
+│  │  │    eth0     │◄───┘         │    │             │  │   │
+│  │  │ 10.0.0.100  │              │    │             │  │   │
+│  │  └─────────────┘              │    │             │  │   │
+│  └─────────────────────────────────────┼─────────────┼──┘   │
+│                                        │             │      │
+│  ┌─────────────────────────────────────┼─────────────┼──┐   │
+│  │     Container C                     │             │  │   │
+│  │   (netns_C)                         │             │  │   │
+│  │  ┌─────────────┐                    │             │  │   │
+│  │  │    eth0     │◄───────────────────┘             │  │   │
+│  │  │ 10.0.0.101  │                                  │  │   │
+│  │  └─────────────┘                                  │  │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## What You'll Implement
+
+### Step 1: Bridge Network (Software Switch)
+Create a **bridge interface** (like `bridge0`) that acts as a virtual switch inside your host.
+- **Real-world**: This is exactly how Docker's default bridge network works
+- **Learn**: [Linux Bridge Tutorial](https://wiki.linuxfoundation.org/networking/bridge)
+
+### Step 2: NAT and Internet Access  
+Set up **NAT (Network Address Translation)** so containers can access the internet.
+- **What NAT does**: Translates private container IPs (10.0.0.100) to your host's public IP
+- **Why needed**: Containers have private IPs that can't reach the internet directly
+- **Learn**: [NAT Explained](https://www.cloudflare.com/learning/network-layer/what-is-network-address-translation/) | [iptables NAT Tutorial](https://netfilter.org/documentation/HOWTO/NAT-HOWTO.html)
+
+### Step 3: Virtual Ethernet Pairs (veth)
+Create **veth pairs** - virtual network cables connecting containers to the bridge.
+- **How it works**: One end goes in the container, other end connects to bridge
+- **Real-world**: Docker creates a veth pair for every container
+- **Learn**: [Linux Virtual Networking](https://developers.redhat.com/blog/2018/10/22/introduction-to-linux-interfaces-for-virtual-networking)
+
+### Step 4: Network Namespaces
+Put each container in its own **network namespace** for isolation.
+- **What it does**: Each container sees only its own network interfaces
+- **Why important**: Prevents containers from interfering with each other
+- **Learn**: [Network Namespaces Guide](https://www.kernel.org/doc/Documentation/networking/namespaces.txt)
+
 
 <details>
 <summary>Vocabulary: Container Networking</summary>
 
-- **Bridge**: Software switch that connects multiple network interfaces at Layer 2
-- **Veth Pair**: Virtual ethernet cable connecting two network namespaces
-- **Network Namespace**: Isolated network stack with its own interfaces and routing
-- **NAT (Network Address Translation)**: Technique for sharing one IP address among multiple devices
-- **iptables**: Linux firewall and NAT configuration tool
-- **MASQUERADE**: iptables target that provides dynamic NAT for changing IP addresses
+- **Bridge**: Software switch that connects network interfaces at Layer 2 (like a physical network switch)
+- **Veth Pair**: Virtual ethernet cable with two ends - data sent to one end appears at the other
+- **Network Namespace**: Isolated network stack - separate interfaces, routing table, firewall rules
+- **NAT (Network Address Translation)**: Rewrites packet headers to share one public IP among many private IPs
+- **iptables**: Linux firewall and packet manipulation tool - handles NAT rules
+- **MASQUERADE**: Special iptables NAT rule for dynamic IP addresses (when host IP might change)
+- **IP Forwarding**: Kernel feature that allows packets to be routed between network interfaces
 
 </details>
 
@@ -2081,8 +2187,6 @@ def create_bridge_interface():
 
 def test_bridge_interface():
     """Test bridge interface creation"""
-
-    # FIX ME: test failing anywhere should cause the script to exit(1)
     print("Testing bridge interface creation...")
     
     result = create_bridge_interface()
@@ -2102,6 +2206,8 @@ def test_bridge_interface():
             print(f"⚠ Could not test bridge connectivity: {e}")
     else:
         print("✗ Bridge interface creation failed")
+        print("CRITICAL: Bridge setup is required for container networking")
+        exit(1)
     
     print("=" * 60)
     return result
@@ -2673,19 +2779,88 @@ test_networked_container()
 
 # %%
 """
+# Container Filesystem: OverlayFS and Union Mounts
+
+## From Image Layers to Running Containers
+
+While we've learned how to extract Docker image layers, production container runtimes don't actually extract all layers to disk. Instead, they use **union filesystems** like OverlayFS to efficiently layer the filesystem without copying data.
+
+### How OverlayFS Works
+
+OverlayFS creates a unified view of multiple directories (layers) without actually merging them:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Container View                           │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  /app/config.json  (from writable layer)           │   │
+│  │  /usr/bin/python   (from python layer)             │   │  
+│  │  /bin/sh          (from base layer)                │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                            ▲                               │
+│                     OverlayFS Mount                        │
+│                            │                               │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │                   Layer Stack                       │   │
+│  │  ┌─────────────────┐  (writable layer - container   │   │
+│  │  │ Upper Dir       │   changes)                     │   │
+│  │  └─────────────────┘                                │   │
+│  │  ┌─────────────────┐  (read-only layers - image     │   │
+│  │  │ Lower Dir 1     │   content)                     │   │
+│  │  └─────────────────┘                                │   │
+│  │  ┌─────────────────┐                                │   │
+│  │  │ Lower Dir 2     │                                │   │
+│  │  └─────────────────┘                                │   │
+│  │  ┌─────────────────┐                                │   │
+│  │  │ Lower Dir 3     │                                │   │
+│  │  └─────────────────┘                                │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Benefits**:
+- **Space Efficient**: Multiple containers share the same base layers
+- **Fast Startup**: No need to copy image layers - just mount them
+- **Copy-on-Write**: Changes are written to writable layer only when needed
+- **Layer Sharing**: Common layers (like Ubuntu base) shared across containers
+
+### Modern Container Storage
+
+- **Docker**: Uses OverlayFS by default (replaced AUFS and DeviceMapper)
+- **Podman**: Also uses OverlayFS for efficient storage
+- **containerd**: Snapshots API abstracts storage drivers including OverlayFS
+
+Learn more: [OverlayFS Documentation](https://www.kernel.org/doc/html/latest/filesystems/overlayfs.html) | [Container Storage Concepts](https://docs.docker.com/storage/storagedriver/overlayfs-driver/)
+
+### Production Reality vs Our Implementation
+
+Our layer extraction approach is educational but inefficient for production:
+- **Our approach**: Extract all layers → large disk usage
+- **Production**: Mount layers with OverlayFS → minimal disk usage
+- **Docker**: Uses content-addressable storage with OverlayFS snapshots
+- **Registry optimization**: Only pulls changed layers, not entire images
+
+**Understanding both approaches gives you**:
+1. **Deep knowledge** of image structure (our extraction method)
+2. **Production efficiency** understanding (OverlayFS reality)
+3. **Debugging skills** for storage-related container issues
+"""
+
+# %%
+"""
 # 6. Container Security Monitoring
 
 In this exercise, you'll implement security monitoring for containers to detect potential escape attempts
-and malicious syscalls. This is crucial for preventing CVE-2024-0137 and similar container escape vulnerabilities.
+and malicious syscalls. This is crucial for preventing CVE-2024-0137 and similar container escape vulnerabilities. Learn about [container security fundamentals](https://kubernetes.io/docs/concepts/security/) and [strace system call tracing](https://man7.org/linux/man-pages/man1/strace.1.html).
 
 ## Introduction
 
 Container security monitoring involves tracking system calls that could indicate escape attempts or 
-malicious behavior. Key concepts include:
+malicious behavior. Learn more about [container escape techniques](https://blog.trailofbits.com/2019/07/19/understanding-docker-container-escapes/) and [runtime security monitoring](https://falco.org/docs/). Key concepts include:
 
-- **Syscall Monitoring**: Using strace to monitor dangerous system calls in real-time
-- **CVE-2024-0137**: A container escape vulnerability involving namespace manipulation
-- **Security Alerting**: Real-time detection and response to suspicious activities
+- **Syscall Monitoring**: Using strace to monitor dangerous system calls in real-time ([strace tutorial](https://blog.packagecloud.io/eng/2016/02/29/how-to-use-strace/))
+- **CVE-2024-0137**: A container escape vulnerability involving namespace manipulation ([CVE details](https://nvidia.custhelp.com/app/answers/detail/a_id/5599))
+- **Security Alerting**: Real-time detection and response to suspicious activities  
 - **Process Termination**: Killing malicious processes before they can escape the container
 
 Common dangerous syscalls to monitor:
