@@ -1482,11 +1482,7 @@ for memory limits to function properly in containerized environments.
 
 def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=None):
     """
-    Create a cgroup with comprehensive settings - Part 1: Core Memory Management
-    
-    This implements the foundational memory management features needed for effective
-    container resource isolation, including swap control which is critical for 
-    memory limits to work properly.
+    Create a cgroup with comprehensive settings - Part 1: Basic setup
     
     Args:
         cgroup_name: Name of the cgroup (e.g., 'demo')
@@ -1532,37 +1528,6 @@ def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=
             print("✓ Disabled swap for cgroup (critical for memory limits)")
         except Exception as e:
             print(f"Warning: Could not disable swap: {e}")
-        
-        # Set memory pressure threshold for early warning
-        try:
-            memory_high_path = f"{cgroup_path}/memory.high"
-            if memory_limit and memory_limit.endswith('M'):
-                # Set high threshold to 80% of max limit
-                high_limit = int(int(memory_limit[:-1]) * 0.8)
-                with open(memory_high_path, "w") as f:
-                    f.write(f"{high_limit}M")
-                print(f"✓ Set memory pressure threshold to {high_limit}M")
-        except Exception as e:
-            print(f"Warning: Could not set memory pressure threshold: {e}")
-        
-        # Validate memory configuration
-        if memory_limit and os.path.exists(memory_max_path):
-            try:
-                with open(memory_max_path, "r") as f:
-                    actual_limit = f.read().strip()
-                print(f"✓ Memory configuration validated: {actual_limit}")
-                
-                # Check swap is actually disabled
-                if os.path.exists(swap_max_path):
-                    with open(swap_max_path, "r") as f:
-                        swap_setting = f.read().strip()
-                    if swap_setting == "0":
-                        print("✓ Swap successfully disabled")
-                    else:
-                        print(f"⚠ Warning: Swap setting is {swap_setting}, expected 0")
-                        
-            except Exception as e:
-                print(f"Warning: Could not validate memory configuration: {e}")
         
         print(f"✓ Part 1 - Core memory management setup complete")
         return cgroup_path
@@ -1669,40 +1634,6 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
             
         except Exception as e:
             print(f"Warning: Could not configure process OOM settings: {e}")
-        
-        # Comprehensive verification and monitoring setup
-        try:
-            # Verify we're in the cgroup
-            with open("/proc/self/cgroup", "r") as f:
-                cgroup_info = f.read()
-            if cgroup_name in cgroup_info:
-                print(f"✓ Process confirmed in cgroup: {cgroup_name}")
-            else:
-                print(f"⚠ Process may not be in cgroup: {cgroup_name}")
-            
-            # Verify all memory settings
-            memory_max_path = f"{cgroup_path}/memory.max"
-            if os.path.exists(memory_max_path):
-                with open(memory_max_path, "r") as f:
-                    memory_max = f.read().strip()
-                print(f"✓ Memory limit confirmed: {memory_max}")
-                
-                # Check memory.high threshold
-                memory_high_path = f"{cgroup_path}/memory.high"
-                if os.path.exists(memory_high_path):
-                    with open(memory_high_path, "r") as f:
-                        memory_high = f.read().strip()
-                    print(f"✓ Memory pressure threshold: {memory_high}")
-                
-                # Check current memory usage
-                memory_current_path = f"{cgroup_path}/memory.current"
-                if os.path.exists(memory_current_path):
-                    with open(memory_current_path, "r") as f:
-                        memory_current = f.read().strip()
-                    print(f"✓ Current memory usage: {memory_current} bytes")
-                
-        except Exception as e:
-            print(f"Warning: Could not complete verification: {e}")
         
         print(f"✓ Part 2 - Advanced OOM and process management complete")
         print(f"✓ Full comprehensive cgroup setup finished for: {cgroup_name}")
