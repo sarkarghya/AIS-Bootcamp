@@ -1348,10 +1348,8 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
             command = ['/bin/sh', '-c', command]
         
         # Create a shell script that adds the process to cgroup then chroots
-        # First add current process to cgroup, then execute chroot
-        add_process_to_cgroup(cgroup_name)
-        
         script = f"""
+        echo $$ > /sys/fs/cgroup/{cgroup_name}/cgroup.procs
         chroot {chroot_dir} {' '.join(command)}
         """
         
