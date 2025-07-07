@@ -252,49 +252,12 @@ def parse_image_reference(image_ref: str) -> Tuple[str, str, str]:
         return registry, image, tag
     else:
         # TODO: Implement image reference parsing
-        # Step 1: Check if image_ref starts with 'http' to detect full URLs
-        if image_ref.startswith('http'):
-            # Remove 'https://' or 'http://' prefix and split by '/'
-            parts = image_ref.replace('https://', '').replace('http://', '').split('/')
-            registry = parts[0]  # First part is registry hostname
-            
-            # Check if this is a manifest URL containing '/manifests/'
-            if '/manifests/' in image_ref:
-                # Extract image and tag: join parts[2:], then split on '/manifests/'
-                image_parts = '/'.join(parts[2:]).split('/manifests/')
-                image = image_parts[0]
-                tag = image_parts[1]
-            else:
-                # Regular URL: image is middle parts, tag is last part
-                image = '/'.join(parts[1:-1])
-                tag = parts[-1] if ':' in parts[-1] else 'latest'
-        else:
-            # Step 2: Handle Docker image format (e.g., "hello-world" or "gcr.io/project/image")
-            # Check if first part contains dots (custom registry like gcr.io)
-            if '/' in image_ref and image_ref.split('/')[0].count('.') > 0:
-                # Custom registry: split on first '/' to separate registry from image
-                parts = image_ref.split('/', 1)
-                registry = parts[0]
-                image_and_tag = parts[1]
-            else:
-                # Docker Hub: use default registry
-                registry = 'registry-1.docker.io'
-                image_and_tag = image_ref
-                # Add 'library/' prefix if no '/' in image name
-                if '/' not in image_and_tag:
-                    image_and_tag = f"library/{image_and_tag}"
-            
-            # Step 3: Split image and tag (tag comes after ':')
-            if ':' in image_and_tag:
-                # Split on last ':' to handle images with ':' in repository name
-                image, tag = image_and_tag.rsplit(':', 1)
-            else:
-                # No tag specified, use 'latest'
-                image = image_and_tag
-                tag = 'latest'
-        
-        # Step 4: Return the three components as a tuple
-        return registry, image, tag
+        # Handle different formats:
+        # - Full URLs with https://
+        # - Docker Hub shorthand (no registry specified)
+        # - Custom registries (has dots in first part)
+        # - Extract registry, image, and tag components
+        pass
 
 def test_parse_image_reference(parse_image_reference):
     """Test the image reference parsing function."""
@@ -508,54 +471,12 @@ def get_target_manifest(registry: str, image: str, tag: str, headers: Dict[str, 
         return manifest_digest
     else:
         # TODO: Implement manifest discovery
-        # Step 1: Build manifest list URL using f-string
-        manifest_list_url = f"https://{registry}/v2/{image}/manifests/{tag}"
-        print(f"Fetching manifest list from: {manifest_list_url}")
-        
-        # Step 2: Make HTTP request with authentication headers
-        resp = requests.get(manifest_list_url, headers=headers)
-        resp.raise_for_status()  # Raises exception if HTTP error
-        
-        # Step 3: Parse JSON response to get manifest list
-        manifest_list = resp.json()
-        
-        # Step 4: Find manifest matching target architecture
-        target_manifest = None
-        for manifest in manifest_list.get('manifests', []):
-            platform = manifest.get('platform', {})
-            
-            # Check if architecture matches
-            if platform.get('architecture') == target_arch:
-                # If target_variant is specified, check that too
-                if target_variant:
-                    if platform.get('variant') == target_variant:
-                        target_manifest = manifest
-                        break  # Found exact match
-                else:
-                    # No variant specified, take first architecture match
-                    target_manifest = manifest
-                    break
-        
-        # Step 5: Handle case where no matching manifest found
-        if not target_manifest:
-            # Build helpful error message with available architectures
-            available_archs = []
-            for manifest in manifest_list.get('manifests', []):
-                platform = manifest.get('platform', {})
-                arch_str = platform.get('architecture', 'unknown')
-                if platform.get('variant'):
-                    arch_str += f" {platform.get('variant')}"
-                available_archs.append(arch_str)
-            
-            # Raise ValueError with detailed information
-            raise ValueError(f"No manifest found for architecture {target_arch}"
-                           f"{f' variant {target_variant}' if target_variant else ''}. "
-                           f"Available: {', '.join(available_archs)}")
-        
-        # Step 6: Extract and return the manifest digest
-        manifest_digest = target_manifest['digest']
-        print(f"Found manifest for {target_arch}: {manifest_digest}")
-        return manifest_digest
+        # 1. Build manifest list URL
+        # 2. Make HTTP request with headers
+        # 3. Parse JSON response
+        # 4. Find manifest matching target_arch and target_variant
+        # 5. Return the digest, or raise ValueError if not found
+        pass
 
 def test_get_target_manifest(get_target_manifest, get_auth_token):
     """Test the manifest discovery function."""
@@ -658,28 +579,12 @@ def get_manifest_layers(registry: str, image: str, manifest_digest: str, headers
         return layers
     else:
         # TODO: Implement manifest processing
-        # Step 1: Build manifest URL using the digest
-        manifest_url = f"https://{registry}/v2/{image}/manifests/{manifest_digest}"
-        
-        # Step 2: Add Accept header for v2 manifest format (important!)
-        headers_copy = headers.copy()  # Don't modify original headers
-        headers_copy['Accept'] = 'application/vnd.docker.distribution.manifest.v2+json'
-        
-        # Step 3: Make HTTP request to fetch the manifest
-        print(f"Fetching manifest from: {manifest_url}")
-        resp = requests.get(manifest_url, headers=headers_copy)
-        resp.raise_for_status()  # Raises exception if HTTP error
-        
-        # Step 4: Parse JSON response to get manifest data
-        manifest = resp.json()
-        
-        # Step 5: Extract layers array from manifest
-        print(f"Manifest type: {manifest.get('mediaType', 'unknown')}")
-        layers = manifest.get('layers', [])  # Get 'layers' key, default to empty list
-        print(f"Number of layers: {len(layers)}")
-        
-        # Step 6: Return the list of layer dictionaries
-        return layers
+        # 1. Build manifest URL using digest
+        # 2. Add Accept header for v2 manifest format
+        # 3. Make HTTP request
+        # 4. Parse JSON and extract layers
+        # 5. Return list of layer dictionaries
+        pass
 
 def test_get_manifest_layers(get_manifest_layers, get_auth_token, get_target_manifest):
     """Test the manifest processing function."""
@@ -801,31 +706,13 @@ def download_and_extract_layers(registry: str, image: str, layers: List[Dict[str
         print(f"\n✓ Extracted {len(layers)} layers to {output_dir}")
     else:
         # TODO: Implement layer download and extraction
-        # Step 1: Create output directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Step 2: Process each layer in order (order matters!)
-        for i, layer in enumerate(layers):
-            # Get layer information
-            digest = layer['digest']  # SHA256 hash of the layer
-            size = layer.get('size', 0)  # Size in bytes
-            print(f"\nProcessing layer {i + 1}/{len(layers)}: {digest} ({size} bytes)")
-            
-            # Step 2a: Build blob URL using digest
-            blob_url = f"https://{registry}/v2/{image}/blobs/{digest}"
-            
-            # Step 2b: Download blob with streaming (important for large files!)
-            blob_resp = requests.get(blob_url, headers=headers, stream=True)
-            blob_resp.raise_for_status()  # Check for HTTP errors
-            
-            # Step 2c: Extract as gzipped tar to output_dir
-            print(f"  Extracting to {output_dir}...")
-            # Use BytesIO to create file-like object from downloaded bytes
-            with tarfile.open(fileobj=BytesIO(blob_resp.content), mode='r:gz') as tar:
-                tar.extractall(output_dir)
-        
-        # Step 3: Print completion information
-        print(f"\n✓ Extracted {len(layers)} layers to {output_dir}")
+        # 1. Create output directory
+        # 2. For each layer:
+        #    a. Build blob URL using digest
+        #    b. Download blob with streaming
+        #    c. Extract as gzipped tar to output_dir
+        # 3. Print progress information
+        pass
 
 def test_download_and_extract_layers(download_and_extract_layers, get_auth_token, 
                                    get_target_manifest, get_manifest_layers):
@@ -936,30 +823,13 @@ def pull_layers(image_ref: str, output_dir: str, target_arch: str = TARGET_ARCH,
         print(f"  Architecture: {target_arch}{f' variant {target_variant}' if target_variant else ''}")
     else:
         # TODO: Implement complete pull_layers function
-        # Step 1: Parse image reference to get registry, image name, and tag
-        registry, image, tag = parse_image_reference(image_ref)
-        
-        # Print what we're doing
-        print(f"Registry: {registry}")
-        print(f"Image: {image}")
-        print(f"Tag: {tag}")
-        print(f"Target architecture: {target_arch}{f' variant {target_variant}' if target_variant else ''}")
-        
-        # Step 2: Get authentication headers for this registry and image
-        headers = get_auth_token(registry, image)
-        
-        # Step 3: Get the manifest digest for our target architecture
-        manifest_digest = get_target_manifest(registry, image, tag, headers, target_arch, target_variant)
-        
-        # Step 4: Get the list of layers from the manifest
-        layers = get_manifest_layers(registry, image, manifest_digest, headers)
-        
-        # Step 5: Download and extract all layers to the output directory
-        download_and_extract_layers(registry, image, layers, headers, output_dir)
-        
-        # Print success message
-        print(f"✓ Successfully extracted {image_ref} to {output_dir}")
-        print(f"  Architecture: {target_arch}{f' variant {target_variant}' if target_variant else ''}")
+        # Use all the functions you've implemented above:
+        # 1. parse_image_reference()
+        # 2. get_auth_token()
+        # 3. get_target_manifest()
+        # 4. get_manifest_layers()
+        # 5. download_and_extract_layers()
+        pass
 
 def test_pull_layers_complete(pull_layers):
     """Test the complete pull_layers function."""
@@ -1131,43 +1001,13 @@ def run_chroot(chroot_dir: str, command: Optional[Union[str, List[str]]] = None)
             return None
     else:
         # TODO: Implement chroot command execution
-        # Step 1: Handle different command formats (None, string, list)
-        if command is None:
-            command = ['/bin/sh']  # Default to interactive shell
-        elif isinstance(command, str):
-            # Wrap string commands in shell -c for execution
-            command = ['/bin/sh', '-c', command]
-        # If command is already a list, use it as-is
-        
-        print(f"Running chroot {chroot_dir} with command: {' '.join(command)}")
-        
-        # Step 2: Build the chroot command: ['chroot', chroot_dir] + command
-        full_command = ['chroot', chroot_dir] + command
-        
-        # Step 3: Execute with subprocess.run() with timeout and output capture
-        try:
-            result = subprocess.run(full_command, 
-                                  capture_output=True,  # Capture stdout and stderr
-                                  text=True,           # Return strings, not bytes
-                                  timeout=30)          # 30 second timeout
-            
-            # Step 4: Print execution details and results
-            print(f"Exit code: {result.returncode}")
-            if result.stdout:
-                print(f"stdout:\n{result.stdout}")
-            if result.stderr:
-                print(f"stderr:\n{result.stderr}")
-            
-            # Step 6: Return the result
-            return result
-            
-        # Step 5: Handle TimeoutExpired and other exceptions
-        except subprocess.TimeoutExpired:
-            print("Command timed out after 30 seconds")
-            return None
-        except Exception as e:
-            print(f"Error running chroot: {e}")
-            return None
+        # 1. Handle different command formats (None, string, list)
+        # 2. Build the chroot command: ['chroot', chroot_dir] + command
+        # 3. Execute with subprocess.run() with timeout and output capture
+        # 4. Print execution details and results
+        # 5. Handle TimeoutExpired and other exceptions
+        # 6. Return the result or None on error
+        pass
 
 def test_run_chroot(run_chroot):
     """Test the chroot command execution function."""
@@ -1352,36 +1192,11 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
         return cgroup_path
     else:
         # TODO: Implement basic cgroup creation
-        import subprocess
-        import os
-        
-        # Step 1: Create cgroup directory under /sys/fs/cgroup/
-        cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
-        os.makedirs(cgroup_path, exist_ok=True)  # exist_ok=True means don't error if exists
-        print(f"Created cgroup directory: {cgroup_path}")
-        
-        # Step 2: Enable controllers (+cpu +memory +pids) in parent cgroup
-        try:
-            # Write to the parent cgroup's subtree_control file to enable controllers
-            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
-                f.write("+cpu +memory +pids")  # Enable CPU, memory, and PID controllers
-            print("Enabled cgroup controllers")
-        except Exception as e:
-            print(f"Warning: Could not enable controllers: {e}")
-        
-        # Step 3: Set memory limit if specified
-        if memory_limit:
-            memory_max_path = f"{cgroup_path}/memory.max"
-            try:
-                # Write the memory limit to the memory.max file
-                with open(memory_max_path, "w") as f:
-                    f.write(str(memory_limit))  # Convert to string (e.g., "100M")
-                print(f"Set memory limit to {memory_limit}")
-            except Exception as e:
-                print(f"Error setting memory limit: {e}")
-        
-        # Step 4: Return the cgroup path
-        return cgroup_path
+        # 1. Create cgroup directory under /sys/fs/cgroup/
+        # 2. Enable controllers (+cpu +memory +pids) in parent cgroup
+        # 3. Set memory limit if specified
+        # 4. Return the cgroup path
+        pass
 
 def test_create_cgroup(create_cgroup):
     """Test the basic cgroup creation function."""
@@ -1457,25 +1272,10 @@ def add_process_to_cgroup(cgroup_name, pid=None):
             return False
     else:
         # TODO: Implement process assignment to cgroup
-        import os
-        
-        # Step 1: Use current process PID if none specified
-        if pid is None:
-            pid = os.getpid()  # Get current process ID
-        
-        # Step 2: Write PID to cgroup.procs file
-        cgroup_procs_path = f"/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
-        
-        # Step 3: Handle errors and return success status
-        try:
-            # Write the PID to the cgroup.procs file to add process to cgroup
-            with open(cgroup_procs_path, "w") as f:
-                f.write(str(pid))  # Convert PID to string
-            print(f"Added process {pid} to cgroup {cgroup_name}")
-            return True  # Success
-        except Exception as e:
-            print(f"Error adding process to cgroup: {e}")
-            return False  # Failure
+        # 1. Use current process PID if none specified
+        # 2. Write PID to cgroup.procs file
+        # 3. Handle errors and return success status
+        pass
 
 def test_add_process_to_cgroup(add_process_to_cgroup, create_cgroup):
     """Test the process assignment function."""
@@ -1567,34 +1367,13 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
             return None
     else:
         # TODO: Implement combined cgroup-chroot execution
-        # Step 1: Create cgroup with memory limit
-        create_cgroup(cgroup_name, memory_limit=memory_limit)
-        
-        # Step 2: Handle command format (None, string, list)
-        if command is None:
-            command = ['/bin/sh']  # Default to shell
-        elif isinstance(command, str):
-            command = ['/bin/sh', '-c', command]  # Wrap string in shell -c
-        
-        # Step 3: Add current process to cgroup BEFORE running chroot
-        add_process_to_cgroup(cgroup_name)
-        
-        # Step 4: Create shell script that executes chroot with command
-        script = f"""
-        chroot {chroot_dir} {' '.join(command)}
-        """
-        
-        # Step 5: Run with timeout and error handling
-        try:
-            # Run without capturing output so we see it in real-time
-            result = subprocess.run(['sh', '-c', script], timeout=60)
-            return result
-        except subprocess.TimeoutExpired:
-            print("Command timed out after 60 seconds")
-            return None
-        except Exception as e:
-            print(f"Error running command: {e}")
-            return None
+        # 1. Create cgroup with memory limit
+        # 2. Handle command format (None, string, list)
+        # 3. Create shell script that:
+        #    - Adds process to cgroup
+        #    - Executes chroot with command
+        # 4. Run with timeout and error handling
+        pass
 
 def test_run_in_cgroup_chroot(run_in_cgroup_chroot, cgroup_name="demo_comprehensive", memory_limit="50M"):
     """
@@ -1938,35 +1717,23 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         pass
 
 
-def test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M"):
-    """
-    Comprehensive memory test that properly sets up cgroups with all necessary settings
-    including oom_score_adj to ensure the memory limit is enforced.
+def test_memory_comprehensive(cgroup_name="demo2", memory_limit="100M"):
+    """Comprehensive memory test with cgroups and process forking"""
+    print(f"Testing memory allocation with {memory_limit} limit:")
     
-    This function forks a process to safely test memory limits without affecting the parent process.
-    """
-    print("Testing complete comprehensive cgroup creation with memory test...")
-    print("Forking process to run memory test...")
-
+    # Create cgroup with comprehensive settings
+    cgroup_path = create_cgroup_comprehensive(cgroup_name, memory_limit=memory_limit)
+    if not cgroup_path:
+        print("✗ Failed to create cgroup")
+        return None
+    
     # Fork the process
     pid = os.fork()
-
+    
     if pid == 0:
-        # Child process - run the memory test here
+        # Child process - run memory test
         try:
-            print("Child process starting memory test...")
-            print(f"Testing memory allocation with {memory_limit} limit (comprehensive setup):")
-            print("(This should properly enforce the cgroup memory limit)")
-            
-            # Create cgroup with comprehensive settings
-            cgroup_path = create_cgroup_comprehensive(cgroup_name, memory_limit=memory_limit)
-            if not cgroup_path:
-                print("✗ Failed to create cgroup")
-                os._exit(1)
-            
-            # Create the test script with proper oom_score_adj setting
             script = f"""
-            # Run the memory test in chroot
             chroot extracted_python/ /bin/sh << 'EOF'
 python3 -c "
 import os
@@ -1979,8 +1746,6 @@ data = []
 for i in range(200):  # Allocate up to 2GB if not killed
     data.append('x' * 10 * 1024 * 1024)  # 10MB chunks
     print('Allocated ' + str((i+1) * 10) + 'MB', flush=True)
-    
-    # Add a small delay to make killing more predictable
     time.sleep(0.01)
 
 print('Test completed - this should not be reached if limits work!')
@@ -1990,58 +1755,42 @@ EOF
             
             import subprocess
             import signal
-            try:
-                # Use Popen to get real-time output
-                process = subprocess.Popen(['sh', '-c', script], 
-                                         stdout=subprocess.PIPE, 
-                                         stderr=subprocess.STDOUT,
-                                         universal_newlines=True)
+            
+            process = subprocess.Popen(['sh', '-c', script], 
+                                     stdout=subprocess.PIPE, 
+                                     stderr=subprocess.STDOUT,
+                                     universal_newlines=True)
+            
+            # Stream output in real-time
+            if process.stdout:
+                for line in iter(process.stdout.readline, ''):
+                    print(line.strip())
+            
+            process.wait(timeout=60)
+            
+            # Check how the process ended
+            if process.returncode == 0:
+                print("\n⚠ Process completed normally - cgroup memory limit NOT working")
+            elif process.returncode == -signal.SIGKILL or process.returncode == 137:
+                print("\n✓ Process was KILLED - cgroup memory limit working!")
+                print("   Return code 137 = 128 + 9 (SIGKILL)")
+            elif process.returncode < 0:
+                print(f"\n✓ Process was killed by signal {-process.returncode}")
+            else:
+                print(f"\n? Process exited with code {process.returncode}")
                 
-                # Stream output in real-time
-                if process.stdout:
-                    for line in iter(process.stdout.readline, ''):
-                        print(line.strip())
-                
-                process.wait(timeout=60)
-                
-                # Check how the process ended
-                if process.returncode == 0:
-                    print("\n⚠ Process completed normally - cgroup memory limit NOT working")
-                    os._exit(0)
-                elif process.returncode == -signal.SIGKILL or process.returncode == 137:
-                    print("\n✓ Process was KILLED - cgroup memory limit working!")
-                    print("   Return code 137 = 128 + 9 (SIGKILL)")
-                    os._exit(0)
-                elif process.returncode < 0:
-                    print(f"\n✓ Process was killed by signal {-process.returncode}")
-                    os._exit(0)
-                else:
-                    print(f"\n? Process exited with code {process.returncode}")
-                    os._exit(process.returncode)
-                
-            except subprocess.TimeoutExpired:
-                print("\n✗ Test timed out")
-                os._exit(1)
-            except Exception as e:
-                print(f"\n✗ Error: {e}")
-                os._exit(1)
-
         except Exception as e:
             print(f"Child process error: {e}")
-            os._exit(1)
         finally:
-            # Child must exit explicitly to avoid continuing parent code
             os._exit(0)
-
+    
     else:
         # Parent process - wait for child and report results
         print(f"✓ Forked child process with PID: {pid}")
         
         try:
-            # Wait for child process to complete
             _, status = os.waitpid(pid, 0)
             
-            # Check how the child process ended
             if os.WIFEXITED(status):
                 exit_code = os.WEXITSTATUS(status)
                 print(f"Child exited with code: {exit_code}")
@@ -2056,9 +1805,12 @@ EOF
             
         except Exception as e:
             print(f"Error waiting for child: {e}")
-    
-    print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
-    return True
+
+# Run the test
+print("Testing complete comprehensive cgroup creation with memory test...")
+test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
+print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
+
 
 # Run the test
 test_memory_comprehensive()
