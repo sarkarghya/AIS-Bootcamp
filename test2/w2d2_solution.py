@@ -1723,8 +1723,8 @@ EOF
         print(f"\n✗ Error: {e}")
         return None
 
-def test_create_cgroup_comprehensive(test_memory_comprehensive):
 
+def test_create_cgroup_comprehensive(test_memory_comprehensive):
     print("Testing complete comprehensive cgroup creation with memory test...")
     print("Forking process to run memory test...")
 
@@ -1735,72 +1735,7 @@ def test_create_cgroup_comprehensive(test_memory_comprehensive):
         # Child process - run the memory test here
         try:
             print("Child process starting memory test...")
-            print("(This should properly enforce the cgroup memory limit)")
-            # Create cgroup with comprehensive settings
-            cgroup_path = create_cgroup_comprehensive(cgroup_name="demo2", memory_limit="50M")
-            if not cgroup_path:
-                print("✗ Failed to create cgroup")
-                return None
-            
-            # Create the test script with proper oom_score_adj setting
-            script = f"""
-# Run the memory test in chroot
-chroot extracted_python/ /bin/sh << 'EOF'
-python3 -c "
-import os
-import time
-
-print('Starting memory allocation test...')
-print('Process PID:', os.getpid())
-
-data = []
-for i in range(200):  # Allocate up to 2GB if not killed
-    data.append('x' * 10 * 1024 * 1024)  # 10MB chunks
-    print('Allocated ' + str((i+1) * 10) + 'MB', flush=True)
-    
-    # Add a small delay to make killing more predictable
-    time.sleep(0.01)
-
-print('Test completed - this should not be reached if limits work!')
-"
-EOF
-            """
-            
-            import subprocess
-            import signal
-            try:
-                # Use Popen to get real-time output
-                process = subprocess.Popen(['sh', '-c', script], 
-                                        stdout=subprocess.PIPE, 
-                                        stderr=subprocess.STDOUT,
-                                        universal_newlines=True)
-                
-                # Stream output in real-time
-                if process.stdout:
-                    for line in iter(process.stdout.readline, ''):
-                        print(line.strip())
-                
-                process.wait(timeout=60)
-                
-                # Check how the process ended
-                if process.returncode == 0:
-                    print("\n⚠ Process completed normally - cgroup memory limit NOT working")
-                elif process.returncode == -signal.SIGKILL or process.returncode == 137:
-                    print("\n✓ Process was KILLED - cgroup memory limit working!")
-                    print("   Return code 137 = 128 + 9 (SIGKILL)")
-                elif process.returncode < 0:
-                    print(f"\n✓ Process was killed by signal {-process.returncode}")
-                else:
-                    print(f"\n? Process exited with code {process.returncode}")
-                
-                return process.returncode
-            except subprocess.TimeoutExpired:
-                print("\n✗ Test timed out")
-                return None
-            except Exception as e:
-                print(f"\n✗ Error: {e}")
-                return None
-
+            test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
         except Exception as e:
             print(f"Child process error: {e}")
         finally:
@@ -1832,7 +1767,7 @@ EOF
             print(f"Error waiting for child: {e}")
     print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
 
-test_create_cgroup_comprehensive(create_cgroup_comprehensive)
+test_create_cgroup_comprehensive(test_memory_comprehensive)
 # %%
 """
 ## Summary: Understanding Cgroups
