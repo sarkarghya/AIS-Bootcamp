@@ -290,7 +290,7 @@ test_parse_image_reference(parse_image_reference)
 
 # %%
 """
-## Exercise 1.2: Docker Registry Authentication
+## Exercise 1.2: Docker Registry Authentication (Optional)
 
 Implement authentication with Docker registries using token-based authentication.
 
@@ -345,13 +345,16 @@ def get_auth_token(registry: str, image: str) -> Dict[str, str]:
             headers['Authorization'] = f'Bearer {token}'
         return headers
     else:
-        # TODO: Implement authentication
-        # For Docker Hub (registry-1.docker.io):
-        # - Request token from auth.docker.io
-        # - Include service and scope parameters
-        # - Return Authorization header with Bearer token
-        # For other registries: return empty headers for now
-        pass
+        # TODO: Authentication implementation
+        headers = {}
+        if registry == 'registry-1.docker.io':
+            # Get auth token for Docker Hub
+            token_url = f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{image}:pull"
+            token_resp = requests.get(token_url)
+            token_resp.raise_for_status()
+            token = token_resp.json()['token']
+            headers['Authorization'] = f'Bearer {token}'
+        return headers
 
 def test_get_auth_token(get_auth_token):
     """Test the authentication token retrieval."""
@@ -648,6 +651,24 @@ Each layer is a gzipped tar archive that needs to be extracted in order.
 > You should spend up to ~20 minutes on this exercise.
 
 Implement the `download_and_extract_layers` function that downloads and extracts all layers.
+
+**API Usage Instructions:**
+
+1. **Docker Registry Blob URL Format**: `https://{registry}/v2/{image}/blobs/{digest}`
+   - Example: `https://registry-1.docker.io/v2/library/hello-world/blobs/sha256:abc123...`
+
+2. **Streaming Downloads**: Use `requests.get(url, headers=headers, stream=True)` for large files
+   - This prevents loading entire blobs into memory at once
+   - Call `.raise_for_status()` to check for HTTP errors
+
+3. **Gzipped Tar Extraction**: Layers are stored as compressed tar archives
+   - Use `BytesIO(blob_resp.content)` to create a file-like object from downloaded bytes
+   - Use `tarfile.open(fileobj=BytesIO(...), mode='r:gz')` to read gzipped tar from memory
+   - Extract with `tar.extractall(output_dir)` to unpack all files
+
+4. **Layer Processing**: Process layers in order to build the filesystem layer by layer
+   - Each layer represents filesystem changes (additions, modifications, deletions)
+   - Later layers override earlier layers (like Git commits)
 """
 
 def download_and_extract_layers(registry: str, image: str, layers: List[Dict[str, any]], 
@@ -1444,16 +1465,19 @@ test_run_in_cgroup_chroot(run_in_cgroup_chroot)
 """
 ## Exercise 4: Comprehensive Cgroup Setup (Part 1)
 
-This exercise implements the first part of comprehensive cgroup configuration with better memory management and error handling.
+This exercise implements core memory management features that form the foundation 
+of effective container resource isolation. Part 1 focuses on the critical memory 
+controls needed to make resource limits actually work in production.
 
-### Exercise - implement create_cgroup_comprehensive (basic setup)
+### Exercise - implement create_cgroup_comprehensive_part1 (core memory management)
 
 > **Difficulty**: 🔴🔴🔴🔴⚪  
-> **Importance**: 🔵🔵🔵🔵⚪
+> **Importance**: 🔵🔵🔵🔵🔵
 > 
-> You should spend up to ~15 minutes on this exercise.
+> You should spend up to ~20 minutes on this exercise.
 
-Implement the basic setup part of `create_cgroup_comprehensive`.
+Implement comprehensive memory management including swap control, which is essential
+for memory limits to function properly in containerized environments.
 """
 
 def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=None):
@@ -1471,7 +1495,7 @@ def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=
         
         cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
         
-        print(f"Setting up comprehensive cgroup: {cgroup_name}")
+        print(f"Setting up comprehensive cgroup Part 1: {cgroup_name}")
         
         # Create cgroup directory
         os.makedirs(cgroup_path, exist_ok=True)
@@ -1496,13 +1520,26 @@ def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=
                 print(f"✗ Error setting memory limit: {e}")
                 return None
         
+        # Disable swap for this cgroup (CRITICAL for memory limits to work properly)
+        try:
+            swap_max_path = f"{cgroup_path}/memory.swap.max"
+            with open(swap_max_path, "w") as f:
+                f.write("0")
+            print("✓ Disabled swap for cgroup (critical for memory limits)")
+        except Exception as e:
+            print(f"Warning: Could not disable swap: {e}")
+        
+        print(f"✓ Part 1 - Core memory management setup complete")
         return cgroup_path
     else:
-        # TODO: Implement comprehensive cgroup creation - Part 1
-        # 1. Create cgroup directory with better error handling
-        # 2. Enable controllers with proper error checking
+        # TODO: Implement comprehensive cgroup creation - Part 1: Core Memory Management
+        # 1. Create cgroup directory with proper error handling
+        # 2. Enable controllers (+cpu +memory +pids)
         # 3. Set memory limits with validation
-        # 4. Return None if any critical step fails
+        # 4. Disable swap (CRITICAL - write "0" to memory.swap.max)
+        # 5. Set memory pressure threshold (memory.high to 80% of max)
+        # 6. Validate all memory settings
+        # 7. Return cgroup path or None if critical steps fail
         pass
 
 def test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1):
@@ -1533,21 +1570,26 @@ test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1)
 """
 ## Exercise 5: Comprehensive Cgroup Setup (Part 2)
 
-This final exercise completes the comprehensive memory management with swap control and OOM settings.
+This exercise builds on Part 1 by adding advanced Out-of-Memory (OOM) handling, 
+process management, and monitoring capabilities needed for production-ready container isolation.
 
-### Exercise - implement create_cgroup_comprehensive (complete)
+### Exercise - implement create_cgroup_comprehensive (advanced OOM and process management)
 
 > **Difficulty**: 🔴🔴🔴🔴🔴  
 > **Importance**: 🔵🔵🔵🔵🔵
 > 
-> You should spend up to ~20 minutes on this exercise.
+> You should spend up to ~25 minutes on this exercise.
 
-Implement the complete `create_cgroup_comprehensive` function with all advanced features.
+Implement advanced OOM group killing, process assignment, and comprehensive verification
+that builds on the core memory management from Part 1.
 """
 
 def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
     """
-    Create a cgroup with comprehensive settings to ensure memory limits work properly
+    Create a cgroup with comprehensive settings - Part 2: Advanced OOM and Process Management
+    
+    This builds on Part 1 by adding advanced Out-of-Memory handling, process assignment,
+    and comprehensive monitoring capabilities for production-ready container isolation.
     
     Args:
         cgroup_name: Name of the cgroup (e.g., 'demo')
@@ -1642,12 +1684,14 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         
         return cgroup_path
     else:
-        # TODO: Implement complete comprehensive cgroup creation
-        # 1. Start with Part 1 implementation (directory, controllers, memory limit)
-        # 2. Disable swap by writing "0" to memory.swap.max
-        # 3. Enable OOM group killing by writing "1" to memory.oom.group
-        # 4. Handle all errors gracefully
-        # 5. Return cgroup path or None if failed
+        # TODO: Implement comprehensive cgroup creation - Part 2: Advanced OOM and Process Management
+        # 1. Call create_cgroup_comprehensive_part1() to get the base setup
+        # 2. Enable OOM group killing (write "1" to memory.oom.group)
+        # 3. Use add_process_to_cgroup() to assign current process
+        # 4. Set OOM score adjustment (write "1000" to /proc/self/oom_score_adj)
+        # 5. Verify process is in cgroup (check /proc/self/cgroup)
+        # 6. Verify all memory settings and current usage
+        # 7. Return cgroup path or None if failed
         pass
 
 
@@ -1724,47 +1768,51 @@ EOF
         print(f"\n✗ Error: {e}")
         return None
 
-print("Testing complete comprehensive cgroup creation with memory test...")
-print("Forking process to run memory test...")
 
-# Fork the process
-pid = os.fork()
+def test_create_cgroup_comprehensive(test_memory_comprehensive):
+    print("Testing complete comprehensive cgroup creation with memory test...")
+    print("Forking process to run memory test...")
 
-if pid == 0:
-    # Child process - run the memory test here
-    try:
-        print("Child process starting memory test...")
-        test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
-    except Exception as e:
-        print(f"Child process error: {e}")
-    finally:
-        # Child must exit explicitly to avoid continuing parent code
-        os._exit(0)
+    # Fork the process
+    pid = os.fork()
 
-else:
-    # Parent process - wait for child and report results
-    print(f"✓ Forked child process with PID: {pid}")
-    
-    try:
-        # Wait for child process to complete
-        _, status = os.waitpid(pid, 0)
+    if pid == 0:
+        # Child process - run the memory test here
+        try:
+            print("Child process starting memory test...")
+            test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
+        except Exception as e:
+            print(f"Child process error: {e}")
+        finally:
+            # Child must exit explicitly to avoid continuing parent code
+            os._exit(0)
+
+    else:
+        # Parent process - wait for child and report results
+        print(f"✓ Forked child process with PID: {pid}")
         
-        # Check how the child process ended
-        if os.WIFEXITED(status):
-            exit_code = os.WEXITSTATUS(status)
-            print(f"Child exited with code: {exit_code}")
-        elif os.WIFSIGNALED(status):
-            signal_num = os.WTERMSIG(status)
-            if signal_num == 9:  # SIGKILL
-                print("✓ Child was KILLED by OOM - cgroup memory limit working!")
-            else:
-                print(f"✓ Child was killed by signal {signal_num}")
-        
-        print("✓ Parent process continues running!")
-        
-    except Exception as e:
-        print(f"Error waiting for child: {e}")
-print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
+        try:
+            # Wait for child process to complete
+            _, status = os.waitpid(pid, 0)
+            
+            # Check how the child process ended
+            if os.WIFEXITED(status):
+                exit_code = os.WEXITSTATUS(status)
+                print(f"Child exited with code: {exit_code}")
+            elif os.WIFSIGNALED(status):
+                signal_num = os.WTERMSIG(status)
+                if signal_num == 9:  # SIGKILL
+                    print("✓ Child was KILLED by OOM - cgroup memory limit working!")
+                else:
+                    print(f"✓ Child was killed by signal {signal_num}")
+            
+            print("✓ Parent process continues running!")
+            
+        except Exception as e:
+            print(f"Error waiting for child: {e}")
+    print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
+
+test_create_cgroup_comprehensive(test_memory_comprehensive)
 # %%
 """
 ## Summary: Understanding Cgroups
@@ -1887,10 +1935,11 @@ def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memor
                 # Parent process - add child to cgroup then signal to continue
                 print(f"Started paused process {pid}, adding to cgroup {cgroup_name}")
                 
-                cgroup_procs_path = f"/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
-                with open(cgroup_procs_path, "w") as f:
-                    f.write(str(pid))
-                print(f"Added process {pid} to cgroup {cgroup_name}")
+                # Use the existing function to add process to cgroup
+                if add_process_to_cgroup(cgroup_name, pid):
+                    print(f"Added process {pid} to cgroup {cgroup_name}")
+                else:
+                    print(f"⚠ Warning: Could not add process {pid} to cgroup {cgroup_name}")
                 
                 # Signal child to continue
                 os.kill(pid, signal.SIGUSR1)
@@ -1976,6 +2025,9 @@ test_namespace_isolation()
 
 
 # %%
+# FIX ME: this reads a bit too much AI generated - unclear how this is relevant; and unclear how this tells them what to expect in the exercise that follows
+# FIX ME: What is NAT? I think there should be either be an explainer, or links to external explainer. in general, please add lots of links to external resources wherever applicable
+
 """
 # Container Networking
 
@@ -2027,7 +2079,10 @@ import signal
 A bridge network acts as a software switch that connects multiple network interfaces. 
 The first step is creating the bridge interface itself and configuring it with an IP address.
 
-Bash to bring bridge down: ip link set bridge0 down && ip link delete bridge0 && ip -all netns delete && for i in $(ip link | grep veth | awk '{print $2}' | cut -d: -f1); do ip link delete $i; done
+Bash to bring bridge down:
+```shell
+ip link set bridge0 down && ip link delete bridge0 && ip -all netns delete && for i in $(ip link | grep veth | awk '{print $2}' | cut -d: -f1); do ip link delete $i; done
+```
 
 ### Exercise - implement create_bridge_interface
 
@@ -2099,6 +2154,8 @@ def create_bridge_interface():
 
 def test_bridge_interface():
     """Test bridge interface creation"""
+
+    # FIX ME: test failing anywhere should cause the script to exit(1)
     print("Testing bridge interface creation...")
     
     result = create_bridge_interface()
