@@ -1647,11 +1647,11 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         
         # Add current process to cgroup and set up OOM score adjustment
         try:
-            # Add process to cgroup using the existing function
-            if add_process_to_cgroup(cgroup_name):
-                print(f"✓ Added current process to cgroup")
-            else:
-                print(f"⚠ Warning: Could not add process to cgroup")
+            # Add process to cgroup
+            cgroup_procs_path = f"{cgroup_path}/cgroup.procs"
+            with open(cgroup_procs_path, "w") as f:
+                f.write(str(os.getpid()))
+            print(f"✓ Added current process to cgroup")
             
             # Set oom_score_adj to make this process more likely to be killed
             with open("/proc/self/oom_score_adj", "w") as f:
@@ -1684,14 +1684,12 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         
         return cgroup_path
     else:
-        # TODO: Implement comprehensive cgroup creation - Part 2: Advanced OOM and Process Management
-        # 1. Call create_cgroup_comprehensive_part1() to get the base setup
-        # 2. Enable OOM group killing (write "1" to memory.oom.group)
-        # 3. Use add_process_to_cgroup() to assign current process
-        # 4. Set OOM score adjustment (write "1000" to /proc/self/oom_score_adj)
-        # 5. Verify process is in cgroup (check /proc/self/cgroup)
-        # 6. Verify all memory settings and current usage
-        # 7. Return cgroup path or None if failed
+        # TODO: Implement complete comprehensive cgroup creation
+        # 1. Start with Part 1 implementation (directory, controllers, memory limit)
+        # 2. Disable swap by writing "0" to memory.swap.max
+        # 3. Enable OOM group killing by writing "1" to memory.oom.group
+        # 4. Handle all errors gracefully
+        # 5. Return cgroup path or None if failed
         pass
 
 
@@ -1769,50 +1767,50 @@ EOF
         return None
 
 
-def test_create_cgroup_comprehensive(test_memory_comprehensive):
-    print("Testing complete comprehensive cgroup creation with memory test...")
-    print("Forking process to run memory test...")
+# def test_create_cgroup_comprehensive(test_memory_comprehensive):
+print("Testing complete comprehensive cgroup creation with memory test...")
+print("Forking process to run memory test...")
 
-    # Fork the process
-    pid = os.fork()
+# Fork the process
+pid = os.fork()
 
-    if pid == 0:
-        # Child process - run the memory test here
-        try:
-            print("Child process starting memory test...")
-            test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
-        except Exception as e:
-            print(f"Child process error: {e}")
-        finally:
-            # Child must exit explicitly to avoid continuing parent code
-            os._exit(0)
+if pid == 0:
+    # Child process - run the memory test here
+    try:
+        print("Child process starting memory test...")
+        test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
+    except Exception as e:
+        print(f"Child process error: {e}")
+    finally:
+        # Child must exit explicitly to avoid continuing parent code
+        os._exit(0)
 
-    else:
-        # Parent process - wait for child and report results
-        print(f"✓ Forked child process with PID: {pid}")
+else:
+    # Parent process - wait for child and report results
+    print(f"✓ Forked child process with PID: {pid}")
+    
+    try:
+        # Wait for child process to complete
+        _, status = os.waitpid(pid, 0)
         
-        try:
-            # Wait for child process to complete
-            _, status = os.waitpid(pid, 0)
-            
-            # Check how the child process ended
-            if os.WIFEXITED(status):
-                exit_code = os.WEXITSTATUS(status)
-                print(f"Child exited with code: {exit_code}")
-            elif os.WIFSIGNALED(status):
-                signal_num = os.WTERMSIG(status)
-                if signal_num == 9:  # SIGKILL
-                    print("✓ Child was KILLED by OOM - cgroup memory limit working!")
-                else:
-                    print(f"✓ Child was killed by signal {signal_num}")
-            
-            print("✓ Parent process continues running!")
-            
-        except Exception as e:
-            print(f"Error waiting for child: {e}")
-    print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
+        # Check how the child process ended
+        if os.WIFEXITED(status):
+            exit_code = os.WEXITSTATUS(status)
+            print(f"Child exited with code: {exit_code}")
+        elif os.WIFSIGNALED(status):
+            signal_num = os.WTERMSIG(status)
+            if signal_num == 9:  # SIGKILL
+                print("✓ Child was KILLED by OOM - cgroup memory limit working!")
+            else:
+                print(f"✓ Child was killed by signal {signal_num}")
+        
+        print("✓ Parent process continues running!")
+        
+    except Exception as e:
+        print(f"Error waiting for child: {e}")
+print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
 
-test_create_cgroup_comprehensive(test_memory_comprehensive)
+# test_create_cgroup_comprehensive(test_memory_comprehensive)
 # %%
 """
 ## Summary: Understanding Cgroups
