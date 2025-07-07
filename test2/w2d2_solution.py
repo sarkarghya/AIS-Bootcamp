@@ -3642,6 +3642,7 @@ def commit(args):
 
 def test_commit():
     """Test commit functionality using wget installation pattern"""
+    print("="*80)
     print("Testing docker commit...")
     
     # Test argument validation first
