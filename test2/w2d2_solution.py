@@ -3621,7 +3621,7 @@ def commit(args):
         return 1
 
     btrfs_path = get_btrfs_path()
-    if "SOLUTION":
+    if False:
         bash_script = f"""
         set -o errexit -o nounset -o pipefail
         btrfs subvolume delete "{btrfs_path}/{image_id}" > /dev/null
