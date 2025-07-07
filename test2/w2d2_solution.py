@@ -1802,10 +1802,7 @@ def test_create_cgroup_comprehensive(test_memory_comprehensive):
         # Child process - run the memory test here
         try:
             print("Child process starting memory test...")
-            test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
-
             print("(This should properly enforce the cgroup memory limit)")
-            
             # Create cgroup with comprehensive settings
             cgroup_path = create_cgroup_comprehensive(cgroup_name="demo2", memory_limit="50M")
             if not cgroup_path:
