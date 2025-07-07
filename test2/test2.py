@@ -185,6 +185,11 @@ pull_layers(image_ref, output_dir)
 image_ref = "python:3.12-alpine"
 output_dir = "./extracted_python"
 pull_layers(image_ref, output_dir)
+# %%
+# Test with Docker Hub hello-world image:
+image_ref = "almalinux:9"
+output_dir = "./extracted_almalinux"
+pull_layers(image_ref, output_dir)
 
 
 # %% Chroot functionality
