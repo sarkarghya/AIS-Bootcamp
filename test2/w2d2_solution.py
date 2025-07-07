@@ -1600,88 +1600,43 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         import subprocess
         import os
         
-        cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
+        print(f"Setting up comprehensive cgroup Part 2: {cgroup_name}")
         
-        print(f"Setting up comprehensive cgroup: {cgroup_name}")
+        # Start with Part 1 - Core Memory Management
+        cgroup_path = create_cgroup_comprehensive_part1(cgroup_name, memory_limit, cpu_limit)
+        if not cgroup_path:
+            print("✗ Part 1 setup failed, cannot continue with Part 2")
+            return None
         
-        # Create cgroup directory
-        os.makedirs(cgroup_path, exist_ok=True)
-        print(f"✓ Created cgroup directory: {cgroup_path}")
-        
-        # Enable controllers in parent cgroup
-        try:
-            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
-                f.write("+cpu +memory +pids")
-            print("✓ Enabled cgroup controllers")
-        except Exception as e:
-            print(f"Warning: Could not enable controllers: {e}")
-        
-        # Set memory limit if specified
-        if memory_limit:
-            memory_max_path = f"{cgroup_path}/memory.max"
-            try:
-                with open(memory_max_path, "w") as f:
-                    f.write(str(memory_limit))
-                print(f"✓ Set memory limit to {memory_limit}")
-            except Exception as e:
-                print(f"✗ Error setting memory limit: {e}")
-                return None
-        
-        # Disable swap for this cgroup (forces hard memory limit)
-        try:
-            swap_max_path = f"{cgroup_path}/memory.swap.max"
-            with open(swap_max_path, "w") as f:
-                f.write("0")
-            print("✓ Disabled swap for cgroup")
-        except Exception as e:
-            print(f"Warning: Could not disable swap: {e}")
+        print(f"✓ Part 1 complete, continuing with Part 2 - Advanced OOM and Process Management")
         
         # Set OOM killer to be more aggressive for this cgroup
         try:
             oom_group_path = f"{cgroup_path}/memory.oom.group"
             with open(oom_group_path, "w") as f:
                 f.write("1")
-            print("✓ Enabled OOM group killing")
+            print("✓ Enabled OOM group killing (kills entire process group on OOM)")
         except Exception as e:
             print(f"Warning: Could not set OOM group: {e}")
         
         # Add current process to cgroup and set up OOM score adjustment
         try:
-            # Add process to cgroup
-            cgroup_procs_path = f"{cgroup_path}/cgroup.procs"
-            with open(cgroup_procs_path, "w") as f:
-                f.write(str(os.getpid()))
-            print(f"✓ Added current process to cgroup")
+            # Add process to cgroup using the existing function
+            if add_process_to_cgroup(cgroup_name):
+                print(f"✓ Added current process to cgroup")
+            else:
+                print(f"⚠ Warning: Could not add process to cgroup")
             
             # Set oom_score_adj to make this process more likely to be killed
             with open("/proc/self/oom_score_adj", "w") as f:
                 f.write("1000")
-            print("✓ Set OOM score adjustment to 1000")
+            print("✓ Set OOM score adjustment to 1000 (highest priority for killing)")
             
-            # Verify we're in the cgroup
-            with open("/proc/self/cgroup", "r") as f:
-                cgroup_info = f.read()
-            if cgroup_name in cgroup_info:
-                print(f"✓ Process confirmed in cgroup: {cgroup_name}")
-            else:
-                print(f"⚠ Process may not be in cgroup: {cgroup_name}")
-            
-            # Verify memory limits
-            if os.path.exists(memory_max_path):
-                with open(memory_max_path, "r") as f:
-                    memory_max = f.read().strip()
-                print(f"✓ Memory limit confirmed: {memory_max}")
-                
-                # Check memory.high if it exists
-                memory_high_path = f"{cgroup_path}/memory.high"
-                if os.path.exists(memory_high_path):
-                    with open(memory_high_path, "r") as f:
-                        memory_high = f.read().strip()
-                    print(f"✓ Memory high: {memory_high}")
-                
         except Exception as e:
-            print(f"Warning: Could not fully configure process in cgroup: {e}")
+            print(f"Warning: Could not configure process OOM settings: {e}")
         
+        print(f"✓ Part 2 - Advanced OOM and process management complete")
+        print(f"✓ Full comprehensive cgroup setup finished for: {cgroup_name}")
         return cgroup_path
     else:
         # TODO: Implement comprehensive cgroup creation - Part 2: Advanced OOM and Process Management
