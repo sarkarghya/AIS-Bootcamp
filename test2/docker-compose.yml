@@ -3,10 +3,11 @@ version: '3.8'
 services:
   mydocker:
     build: .
+    image: mydocker
     privileged: true
     network_mode: host
     pid: host
-    cgroupns_mode: host
+    cgroup: host
     ipc: host
     stdin_open: true
     tty: true
@@ -19,9 +20,7 @@ services:
       - /etc/resolv.conf:/etc/resolv.conf:ro
       - /run:/run:rw
       - /dev:/dev:rw
-    cgroup_parent: host
     cap_add:
-      - ALL
       - SYS_ADMIN
     security_opt:
       - seccomp:unconfined
