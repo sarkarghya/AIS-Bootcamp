@@ -1428,8 +1428,12 @@ EOF
         
         # Stream output in real-time
         if process.stdout:
-            for line in iter(process.stdout.readline, ''):
-                print(line.strip())
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    print(output.strip())
         
         process.wait(timeout=60)
         
