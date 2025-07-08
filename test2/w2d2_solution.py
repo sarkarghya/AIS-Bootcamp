@@ -3719,11 +3719,12 @@ def test_commit():
     
     # Setup Docker environment first
     print("Setting up environment...")
+    time.sleep(100)
     setup_returncode = setup_docker_environment()
     if setup_returncode != 0:
         print("FAIL: Environment setup failed")
         return False
-    
+    time.sleep(100)
     print("Environment setup completed successfully!")
     print("-" * 40)
     
