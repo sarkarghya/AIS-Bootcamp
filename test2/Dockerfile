@@ -59,10 +59,11 @@ COPY . /w2d2
 
 # Create and activate virtual environment
 RUN python3 -m venv /venv
-ENV PATH="/venv/bin:$PATH"
 
 # Install Python packages in the virtual environment
-RUN /venv/bin/pip install requests
+# Do NOT use system pip
+RUN /venv/bin/pip install --upgrade pip && \
+    /venv/bin/pip install requests
 
 # Create entrypoint script
 RUN echo '#!/bin/bash \n\
@@ -81,7 +82,7 @@ if command -v docker &> /dev/null; then \n\
 fi \n\
 \n\
 # Execute the Python script \n\
-python /w2d2/w2d2_solution.py \n\
+/venv/bin/python3 /w2d2/w2d2_solution.py \n\
 ' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
