@@ -61,6 +61,14 @@ Implement security monitoring to detect container escape attempts and malicious 
 > - Detect CVE-2024-0137 and similar container escape attempts
 > - Implement automated threat response
 
+### 6️⃣ Docker Commit
+Implement the Docker commit functionality to save container changes as new image layers.
+
+> **Learning Objectives**
+> - Understand Docker image layering
+> - Implement container state capture
+> - Create new image layers from container modifications
+
 ## Understanding Containerization
 
 Before diving into the technical implementation, let's understand what containerization provides and why it became so popular in modern software deployment.
@@ -3595,7 +3603,6 @@ You'll need to:
 
 The commit process essentially creates a new image layer that captures all changes made to the container since it was created from its base image.
 
-
 > **Difficulty**: 🔴🔴🔴⚪⚪  
 > **Importance**: 🔵🔵🔵🔵🔵 
 > 
@@ -3621,7 +3628,7 @@ def commit(args):
         return 1
 
     btrfs_path = get_btrfs_path()
-    if False:
+    if "SOLUTION":
         bash_script = f"""
         set -o errexit -o nounset -o pipefail
         btrfs subvolume delete "{btrfs_path}/{image_id}" > /dev/null
@@ -3630,8 +3637,9 @@ def commit(args):
         """
     else:
         # TODO: Implement commit functionality
+        # Read https://btrfs.readthedocs.io/en/latest/Subvolumes.html
         # Delete existing image if it exists
-        # Create snapshot of container as new image
+        # Create snapshot of container as new image (look into btrfs subvolume snapshot)
         # Preserve container metadata and configuration
         bash_script = f"""
         set -o errexit -o nounset -o pipefail
