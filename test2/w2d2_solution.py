@@ -3653,6 +3653,28 @@ The commit process essentially creates a new image layer that captures all chang
 Implement the complete commit functionality that captures container state, creates new image layers, and preserves metadata.
 """
 
+def setup_docker_environment():
+    """Setup Docker environment by running the required bash commands"""
+    print("Setting up Docker environment...")
+    
+    setup_script = """
+# Create btrfs filesystem (any file system will work)
+fallocate -l 10G ~/btrfs.img
+mkdir -p /var/docker_demo
+mkfs.btrfs ~/btrfs.img
+mount -o loop ~/btrfs.img /var/docker_demo
+
+# Create base image manually
+docker pull almalinux:9
+docker create --name temp almalinux:9
+mkdir -p ~/base-image
+docker export temp | tar -xC ~/base-image
+docker rm temp
+"""
+    
+    print("Running setup commands...")
+    return _run_bash_command(setup_script, show_realtime=True)
+
 def commit(args):
     """Commit a container to an image: DOCKER commit <container_id> <image_id>"""
     if len(args) < 2:
@@ -3695,6 +3717,16 @@ def test_commit():
     print("="*80)
     print("Testing docker commit...")
     
+    # Setup Docker environment first
+    print("Setting up environment...")
+    setup_returncode = setup_docker_environment()
+    if setup_returncode != 0:
+        print("FAIL: Environment setup failed")
+        return False
+    
+    print("Environment setup completed successfully!")
+    print("-" * 40)
+    
     # Test argument validation first
     returncode = commit([])
     if returncode != 1:  # Should fail with usage message
@@ -3714,7 +3746,7 @@ def test_commit():
         return False
     
     # Create test image for commit testing
-    base_image_dir = os.path.expanduser('/base-image')
+    base_image_dir = os.path.expanduser('~/base-image')
     if not os.path.exists(base_image_dir):
         print("SKIP: No base image directory available for commit testing")
         return True
