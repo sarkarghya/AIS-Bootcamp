@@ -7,6 +7,7 @@ services:
     network_mode: host
     pid: host
     cgroupns_mode: host
+    ipc: host
     stdin_open: true
     tty: true
     volumes:
@@ -15,17 +16,23 @@ services:
       - /proc:/proc:rw
       - /lib/modules:/lib/modules:ro
       - /etc/resolv.conf:/etc/resolv.conf:ro
+      - /run:/run:rw
+      - /dev:/dev:rw
     cgroup_parent: host
     cap_add:
       - ALL
+      - SYS_ADMIN
     security_opt:
       - seccomp:unconfined
       - apparmor:unconfined
+      - label:disable
     devices:
       - /dev/net/tun
+      - /dev/fuse
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv6.conf.all.forwarding=1
+      - kernel.unprivileged_userns_clone=1
     ulimits:
       nofile:
         soft: 65536
