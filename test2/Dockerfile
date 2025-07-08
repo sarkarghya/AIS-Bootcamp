@@ -9,10 +9,17 @@ RUN apk update && apk add --no-cache \
     iptables \
     strace \
     cgroup-tools \
-    bash
+    bash \
+    bind-tools \
+    curl \
+    ca-certificates
 
 # Create symlinks for python and pip commands
 RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+# Add a hosts file entry for Docker Hub
+RUN echo "44.208.156.194  auth.docker.io" >> /etc/hosts && \
+    echo "44.193.201.175  registry-1.docker.io" >> /etc/hosts
 
 COPY . /w2d2
 
