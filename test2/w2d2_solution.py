@@ -1678,9 +1678,14 @@ EOF
                                  universal_newlines=True)
         
         # Stream output in real-time
+        print("Streaming output...")
         if process.stdout:
-            for line in iter(process.stdout.readline, ''):
-                print(line.strip())
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    print(output.strip())
         
         process.wait(timeout=60)
         
@@ -3721,13 +3726,11 @@ def test_commit():
     print("Testing docker commit...")
     
     # Setup Docker environment first
-    print("Setting up environment...")
-    time.sleep(30)
+    time.sleep(15) # let previous tests finish
     setup_returncode = setup_docker_environment()
     if setup_returncode != 0:
         print("FAIL: Environment setup failed")
         return False
-    time.sleep(30)
     print("Environment setup completed successfully!")
     print("-" * 40)
     
@@ -3867,7 +3870,6 @@ def test_commit():
     return True
 
 
-time.sleep(10)
 test_commit()
 
 # %%
