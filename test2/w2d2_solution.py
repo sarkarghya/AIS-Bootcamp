@@ -3656,17 +3656,8 @@ Implement the complete commit functionality that captures container state, creat
 def setup_docker_environment():
     """Setup Docker environment by running the required bash commands"""
     print("Setting up Docker environment...")
-
-    if os.path.exists('~/base-image'):
-        return 0
     
     setup_script = """
-# Create btrfs filesystem (any file system will work)
-fallocate -l 10G ~/btrfs.img
-mkdir -p /var/docker_demo
-mkfs.btrfs ~/btrfs.img
-mount -o loop ~/btrfs.img /var/docker_demo
-
 # Create base image manually
 docker pull almalinux:9
 docker create --name temp almalinux:9
