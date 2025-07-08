@@ -45,10 +45,10 @@ RUN chattr +i /etc/resolv.conf 2>/dev/null || true
 # Create btrfs filesystem setup script
 RUN mkdir -p /scripts
 RUN echo '#!/bin/bash \n\
-fallocate -l 10G /btrfs.img \n\
+fallocate -l 10G ~/btrfs.img \n\
 mkdir -p /var/docker_demo \n\
-mkfs.btrfs /btrfs.img \n\
-mount -o loop /btrfs.img /var/docker_demo' > /scripts/setup_btrfs.sh && \
+mkfs.btrfs ~/btrfs.img \n\
+mount -o loop ~/btrfs.img /var/docker_demo' > /scripts/setup_btrfs.sh && \
     chmod +x /scripts/setup_btrfs.sh
 
 # Setup for creating base image 
@@ -77,7 +77,8 @@ source /venv/bin/activate \n\
 if command -v docker &> /dev/null; then \n\
   docker pull almalinux:9 || true \n\
   docker create --name temp almalinux:9 || true \n\
-  docker export temp | tar -xC /base-image || true \n\
+  mkdir -p ~/base-image \n\
+  docker export temp | tar -xC ~/base-image || true \n\
   docker rm temp || true \n\
 fi \n\
 \n\
