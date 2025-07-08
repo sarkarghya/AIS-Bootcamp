@@ -48,10 +48,17 @@ COPY . /w2d2
 # Create and activate virtual environment
 RUN python3 -m venv /venv
 
+# Create entrypoint script
+RUN echo '#!/bin/bash \n\
+source /venv/bin/activate \n\
+' > /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+RUN /entrypoint.sh
+
 # Install Python packages in the virtual environment
 # Do NOT use system pip
 RUN /venv/bin/pip install --upgrade pip && \
     /venv/bin/pip install requests
 
-RUN source /venv/bin/activate
 WORKDIR /w2d2
