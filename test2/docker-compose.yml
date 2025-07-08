@@ -7,7 +7,6 @@ services:
     privileged: true
     network_mode: host
     pid: host
-    cgroup: host
     ipc: host
     stdin_open: true
     tty: true
