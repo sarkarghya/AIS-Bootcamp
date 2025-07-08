@@ -24,8 +24,7 @@ RUN apt-get install -y \
     automake \
     gettext \
     autopoint \
-    libtool \
-    yum
+    libtool
 
 # Create symlinks for python commands
 RUN ln -sf /usr/bin/python3 /usr/bin/python
