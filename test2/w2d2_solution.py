@@ -3863,6 +3863,8 @@ def test_commit():
         print("Warning: Could not find wget HTTP request container")
     return True
 
+
+time.sleep(10000)
 test_commit()
 
 # %%
