@@ -111,7 +111,6 @@ if [ ! -f ~/base-image/usr/bin/yum ] && [ -f /usr/bin/yum ]; then \n\
 fi \n\
 \n\
 # Execute the Python script \n\
-/venv/bin/python3 /w2d2/w2d2_solution.py \n\
 ' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
