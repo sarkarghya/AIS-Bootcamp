@@ -3714,7 +3714,7 @@ def test_commit():
         return False
     
     # Create test image for commit testing
-    base_image_dir = os.path.expanduser('~/base-image')
+    base_image_dir = os.path.expanduser('/base-image')
     if not os.path.exists(base_image_dir):
         print("SKIP: No base image directory available for commit testing")
         return True

@@ -46,14 +46,14 @@ RUN chattr +i /etc/resolv.conf 2>/dev/null || true
 # Create btrfs filesystem setup script
 RUN mkdir -p /scripts
 RUN echo '#!/bin/bash \n\
-fallocate -l 10G ~/btrfs.img \n\
+fallocate -l 10G /btrfs.img \n\
 mkdir -p /var/docker_demo \n\
-mkfs.btrfs ~/btrfs.img \n\
-mount -o loop ~/btrfs.img /var/docker_demo' > /scripts/setup_btrfs.sh && \
+mkfs.btrfs /btrfs.img \n\
+mount -o loop /btrfs.img /var/docker_demo' > /scripts/setup_btrfs.sh && \
     chmod +x /scripts/setup_btrfs.sh
 
 # Setup for creating base image 
-RUN mkdir -p ~/base-image
+RUN mkdir -p /base-image
 
 # Copy current directory to image
 COPY . /w2d2
@@ -81,30 +81,30 @@ if command -v docker &> /dev/null; then \n\
   docker pull almalinux:9 || true \n\
   docker create --name temp almalinux:9 || true \n\
   # Create home directory base-image and link it to root base-image \n\
-  mkdir -p ~/base-image \n\
+  mkdir -p /base-image \n\
   # Extract directly to home directory base-image \n\
-  docker export temp | tar -xC ~/base-image || true \n\
+  docker export temp | tar -xC /base-image || true \n\
   # Ensure the base-image exists and has proper permissions \n\
-  chmod -R 755 ~/base-image \n\
+  chmod -R 755 /base-image \n\
   docker rm temp || true \n\
   # Print directory for debugging \n\
   echo "Base image extracted to:" \n\
-  ls -la ~/base-image \n\
+  ls -la /base-image \n\
 else \n\
   # If docker is not available, use our pre-created minimal base image \n\
   echo "Using pre-created minimal base image" \n\
-  ls -la ~/base-image \n\
+  ls -la /base-image \n\
 fi \n\
 \n\
 # Make sure yum exists in the base image \n\
-if [ ! -f ~/base-image/usr/bin/yum ] && [ -f /usr/bin/yum ]; then \n\
-  mkdir -p ~/base-image/usr/bin \n\
-  cp /usr/bin/yum ~/base-image/usr/bin/ \n\
+if [ ! -f /base-image/usr/bin/yum ] && [ -f /usr/bin/yum ]; then \n\
+  mkdir -p /base-image/usr/bin \n\
+  cp /usr/bin/yum /base-image/usr/bin/ \n\
   # Copy necessary dependencies \n\
-  mkdir -p ~/base-image/usr/lib ~/base-image/etc/yum ~/base-image/etc/yum.repos.d \n\
-  cp -r /etc/yum* ~/base-image/etc/ 2>/dev/null || true \n\
-  echo "[main]\\nkeepcache=0\\ngpgcheck=0" > ~/base-image/etc/yum.conf \n\
-  echo "[baseos]\\nname=AlmaLinux 9 - BaseOS\\nbaseurl=http://repo.almalinux.org/almalinux/9/BaseOS/x86_64/os/\\nenabled=1\\ngpgcheck=0" > ~/base-image/etc/yum.repos.d/almalinux.repo \n\
+  mkdir -p /base-image/usr/lib /base-image/etc/yum /base-image/etc/yum.repos.d \n\
+  cp -r /etc/yum* /base-image/etc/ 2>/dev/null || true \n\
+  echo "[main]\\nkeepcache=0\\ngpgcheck=0" > /base-image/etc/yum.conf \n\
+  echo "[baseos]\\nname=AlmaLinux 9 - BaseOS\\nbaseurl=http://repo.almalinux.org/almalinux/9/BaseOS/x86_64/os/\\nenabled=1\\ngpgcheck=0" > /base-image/etc/yum.repos.d/almalinux.repo \n\
 fi \n\
 \n\
 ' > /entrypoint.sh && \
