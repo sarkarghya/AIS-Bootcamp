@@ -74,6 +74,8 @@ source /venv/bin/activate \n\
 /scripts/setup_btrfs.sh \n\
 \n\
 # Pull and extract base image \n\
+systemctl start docker \n\
+systemctl enable docker \n\
 if command -v docker &> /dev/null; then \n\
   docker pull almalinux:9 || true \n\
   docker create --name temp almalinux:9 || true \n\
