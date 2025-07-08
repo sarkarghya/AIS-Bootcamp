@@ -1661,7 +1661,7 @@ for i in range(200):  # Allocate up to 2GB if not killed
     print('Allocated ' + str((i+1) * 10) + 'MB', flush=True)
     
     # Add a small delay to make killing more predictable
-    time.sleep(0.01)
+    time.sleep(0.5)
 
 print('Test completed - this should not be reached if limits work!')
 "
@@ -3328,6 +3328,7 @@ print('Attack simulation completed')
     print(f"✓ Attack simulation completed with exit code: {exit_code}")
     print("✓ Security monitoring detected and handled threats!")
     print("=" * 60)
+    time.sleep(15) # let previous tests finish
     return True
 
 
@@ -3726,7 +3727,7 @@ def test_commit():
     print("Testing docker commit...")
     
     # Setup Docker environment first
-    time.sleep(15) # let previous tests finish
+
     setup_returncode = setup_docker_environment()
     if setup_returncode != 0:
         print("FAIL: Environment setup failed")
