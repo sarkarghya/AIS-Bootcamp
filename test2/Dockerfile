@@ -1,19 +1,18 @@
-FROM ubuntu:22.04
+FROM alpine:3.18
 
 # Install Python and system dependencies needed for container operations
-RUN apt-get update && apt-get install -y \
+RUN apk update && apk add --no-cache \
     python3 \
-    python3-pip \
+    py3-pip \
     btrfs-progs \
     iproute2 \
     iptables \
-    cgroup-tools \
     strace \
-    && rm -rf /var/lib/apt/lists/*
+    cgroup-tools \
+    bash
 
 # Create symlinks for python and pip commands
-RUN ln -sf /usr/bin/python3 /usr/bin/python && \
-    ln -sf /usr/bin/pip3 /usr/bin/pip
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 COPY . /w2d2
 
