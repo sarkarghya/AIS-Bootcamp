@@ -3656,6 +3656,9 @@ Implement the complete commit functionality that captures container state, creat
 def setup_docker_environment():
     """Setup Docker environment by running the required bash commands"""
     print("Setting up Docker environment...")
+
+    if os.path.exists('~/base-image'):
+        return 0
     
     setup_script = """
 # Create btrfs filesystem (any file system will work)
@@ -3719,12 +3722,12 @@ def test_commit():
     
     # Setup Docker environment first
     print("Setting up environment...")
-    time.sleep(100)
+    time.sleep(30)
     setup_returncode = setup_docker_environment()
     if setup_returncode != 0:
         print("FAIL: Environment setup failed")
         return False
-    time.sleep(100)
+    time.sleep(30)
     print("Environment setup completed successfully!")
     print("-" * 40)
     
@@ -3864,7 +3867,7 @@ def test_commit():
     return True
 
 
-time.sleep(10000)
+time.sleep(10)
 test_commit()
 
 # %%

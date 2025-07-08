@@ -113,5 +113,5 @@ fi \n\
 ' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
+RUN /entrypoint.sh
 WORKDIR /w2d2
-ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]
