@@ -15,6 +15,4 @@ services:
     cgroup_parent: host
     cap_add:
       - ALL
-    security_opt:
-      - seccomp:unconfined
     network_mode: host
