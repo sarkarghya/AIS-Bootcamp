@@ -2943,6 +2943,15 @@ def monitor_container_syscalls(container_command, alert_callback):
             
             print(f"🔍 Running strace inside container: {' '.join(strace_cmd)}")
             
+            # Check if container_command matches our legitimate container setup pattern
+            legitimate_pattern = ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', '--fork', 'chroot']
+            is_legitimate_setup = False
+            if len(container_command) >= len(legitimate_pattern):
+                # Check if the container command starts with our legitimate pattern
+                if all(container_command[i] == legitimate_pattern[i] for i in range(len(legitimate_pattern))):
+                    is_legitimate_setup = True
+                    print("✓ Identified legitimate container setup sequence - initial unshare will be allowed")
+            
             process = subprocess.Popen(
                 strace_cmd,
                 stdout=subprocess.PIPE,
@@ -2953,11 +2962,23 @@ def monitor_container_syscalls(container_command, alert_callback):
             # Monitor stderr for syscall traces
             def monitor_stderr():
                 if process.stderr:
+                    # Track if we've seen the initial legitimate unshare
+                    initial_unshare_seen = False
+                    
                     for line in iter(process.stderr.readline, ''):
                         if line.strip():
                             # Check for dangerous syscalls
                             if any(syscall in line for syscall in DANGEROUS_SYSCALLS):
-                                alert_callback(line.strip(), process.pid)
+                                # If this is a legitimate setup and it's the initial unshare syscall
+                                if (is_legitimate_setup and 'unshare' in line and 
+                                    ('CLONE_NEWNET' in line or '--net' in line) and 
+                                    not initial_unshare_seen):
+                                    # Skip the alert for this initial legitimate unshare
+                                    initial_unshare_seen = True
+                                    print(f"✓ Allowed initial container setup: {line.strip()}")
+                                else:
+                                    # This is a suspicious syscall, trigger the alert
+                                    alert_callback(line.strip(), process.pid)
                             # Also print container output
                             if not any(syscall in line for syscall in DANGEROUS_SYSCALLS):
                                 print(f"[CONTAINER] {line.strip()}")
@@ -3027,7 +3048,6 @@ def monitor_container_syscalls(container_command, alert_callback):
     except Exception as e:
         print(f"⚠ Container monitoring error: {e}")
         return -1
-
 
 
 def test_syscall_monitoring():
