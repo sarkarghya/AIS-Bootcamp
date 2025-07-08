@@ -3089,7 +3089,7 @@ def security_alert_handler(syscall_line, pid):
     print(f"   Process PID: {pid}")
     
     # Specific CVE-2024-0137 detection patterns
-    if 'unshare' in syscall_line and ('CLONE_NEWNET' in syscall_line or '--net' in syscall_line):
+    if 'unshare' in syscall_line and ('CLONE_NEWNET' in syscall_line):
         print(f"🔥 CRITICAL: CVE-2024-0137 network namespace escape detected!")
         print(f"   Terminating malicious container...")
         try:
@@ -3124,18 +3124,40 @@ def test_security_alerts():
     """Test security alert handling"""
     print("Testing security alert handling...")
     
-    # Test different types of syscall patterns
-    test_cases = [
-        ("unshare(CLONE_NEWNET) = 0", 12345, "CVE-2024-0137"),
-        ("setns(3, CLONE_NEWNS) = 0", 12346, "Namespace manipulation"),
-        ("mount(/dev/sda1, /mnt) = 0", 12347, "Filesystem mount"),
-        ("pivot_root(/new_root, /old_root) = 0", 12348, "Root manipulation"),
-    ]
+    # Create some real PIDs by spawning background processes
+    import subprocess
+    import time
     
-    print("Testing various attack patterns:")
-    for syscall_line, fake_pid, attack_type in test_cases:
-        print(f"\n--- Testing {attack_type} ---")
-        security_alert_handler(syscall_line, fake_pid)
+    processes = []
+    try:
+        # Spawn 4 sleep processes to get real PIDs
+        for _ in range(4):
+            process = subprocess.Popen(["sleep", "1"])
+            processes.append(process)
+        
+        # Give processes time to start
+        time.sleep(0.1)
+        
+        # Test different types of syscall patterns with real PIDs
+        test_cases = [
+            ("unshare(CLONE_NEWNET) = 0", processes[0].pid, "CVE-2024-0137"),
+            ("setns(3, CLONE_NEWNS) = 0", processes[1].pid, "Namespace manipulation"),
+            ("mount(/dev/sda1, /mnt) = 0", processes[2].pid, "Filesystem mount"),
+            ("pivot_root(/new_root, /old_root) = 0", processes[3].pid, "Root manipulation"),
+        ]
+        
+        print("Testing various attack patterns:")
+        for syscall_line, pid, attack_type in test_cases:
+            print(f"\n--- Testing {attack_type} (PID: {pid}) ---")
+            security_alert_handler(syscall_line, pid)
+    
+    finally:
+        # Clean up processes
+        for process in processes:
+            try:
+                process.terminate()
+            except:
+                pass
     
     print("\n✓ Security alert handling test completed!")
     print("=" * 60)
