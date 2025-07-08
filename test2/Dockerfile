@@ -42,16 +42,6 @@ RUN echo "44.208.156.194  auth.docker.io" >> /etc/hosts && \
 # Make resolv.conf immutable to prevent overwrites
 RUN chattr +i /etc/resolv.conf 2>/dev/null || true
 
-# Create btrfs filesystem setup script
-RUN mkdir -p /scripts
-
-RUN echo '#!/bin/bash \n\
-fallocate -l 10G ~/btrfs.img \n\
-mkdir -p /var/docker_demo \n\
-mkfs.btrfs ~/btrfs.img \n\
-mount -o loop ~/btrfs.img /var/docker_demo' > /scripts/setup_btrfs.sh && \
-    chmod +x /scripts/setup_btrfs.sh
-
 # Copy current directory to image
 COPY . /w2d2
 
@@ -63,12 +53,5 @@ RUN python3 -m venv /venv
 RUN /venv/bin/pip install --upgrade pip && \
     /venv/bin/pip install requests
 
-# Create entrypoint script
-RUN echo '#!/bin/bash \n\
-source /venv/bin/activate \n\
-/scripts/setup_btrfs.sh \n\
-' > /entrypoint.sh && \
-    chmod +x /entrypoint.sh
-
-RUN /entrypoint.sh
+RUN source /venv/bin/activate
 WORKDIR /w2d2

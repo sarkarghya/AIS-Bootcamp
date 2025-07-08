@@ -3658,6 +3658,11 @@ def setup_docker_environment():
     print("Setting up Docker environment...")
     
     setup_script = """
+fallocate -l 10G ~/btrfs.img
+mkdir -p /var/docker_demo
+mkfs.btrfs ~/btrfs.img
+mount -o loop ~/btrfs.img /var/docker_demo
+
 # Create base image manually
 docker pull almalinux:9
 docker create --name temp almalinux:9
