@@ -76,6 +76,7 @@ source /venv/bin/activate \n\
 \n\
 # Pull and extract base image \n\
 if command -v docker &> /dev/null; then \n\
+  echo "Pulling base image..." \n\
   docker pull almalinux:9 || true \n\
   docker create --name temp almalinux:9 || true \n\
   # Create home directory base-image and link it to root base-image \n\
@@ -84,8 +85,6 @@ if command -v docker &> /dev/null; then \n\
   docker export temp | tar -xC ~/base-image || true \n\
   # Ensure the base-image exists and has proper permissions \n\
   chmod -R 755 ~/base-image \n\
-  # Create symlink for compatibility \n\
-  ln -sf ~/base-image /base-image \n\
   docker rm temp || true \n\
   # Print directory for debugging \n\
   echo "Base image extracted to:" \n\
@@ -95,9 +94,6 @@ else \n\
   echo "Using pre-created minimal base image" \n\
   ls -la ~/base-image \n\
 fi \n\
-\n\
-# Make sure essential directories exist in the base image \n\
-# mkdir -p ~/base-image/bin ~/base-image/etc ~/base-image/lib ~/base-image/lib64 ~/base-image/usr/bin ~/base-image/var \n\
 \n\
 # Make sure yum exists in the base image \n\
 if [ ! -f ~/base-image/usr/bin/yum ] && [ -f /usr/bin/yum ]; then \n\
@@ -110,7 +106,6 @@ if [ ! -f ~/base-image/usr/bin/yum ] && [ -f /usr/bin/yum ]; then \n\
   echo "[baseos]\\nname=AlmaLinux 9 - BaseOS\\nbaseurl=http://repo.almalinux.org/almalinux/9/BaseOS/x86_64/os/\\nenabled=1\\ngpgcheck=0" > ~/base-image/etc/yum.repos.d/almalinux.repo \n\
 fi \n\
 \n\
-# Execute the Python script \n\
 ' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
