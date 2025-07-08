@@ -73,9 +73,13 @@ source /venv/bin/activate \n\
 # Run btrfs setup script \n\
 /scripts/setup_btrfs.sh \n\
 \n\
+# Try to start Docker daemon directly \n\
+mkdir -p /var/run/docker \n\
+dockerd --host=unix:///var/run/docker.sock --host=tcp://0.0.0.0:2375 > /var/log/dockerd.log 2>&1 & \n\
+echo "Waiting for Docker daemon to start..." \n\
+sleep 10 \n\
+\n\
 # Pull and extract base image \n\
-systemctl start docker \n\
-systemctl enable docker \n\
 if command -v docker &> /dev/null; then \n\
   docker pull almalinux:9 || true \n\
   docker create --name temp almalinux:9 || true \n\
