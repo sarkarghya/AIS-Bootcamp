@@ -21,7 +21,3 @@ services:
       - 1.1.1.1
     security_opt:
       - seccomp:unconfined
-    network_mode: host
-    extra_hosts:
-      - "auth.docker.io:44.208.156.194"
-      - "registry-1.docker.io:44.193.201.175"
