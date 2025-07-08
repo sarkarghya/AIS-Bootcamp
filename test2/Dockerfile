@@ -7,6 +7,8 @@ RUN apt-get update
 RUN apt-get install -y \
     python3 \
     python3-pip \
+    python3-venv \
+    python3-full \
     btrfs-progs \
     iproute2 \
     iptables \
@@ -22,8 +24,7 @@ RUN apt-get install -y \
     automake \
     gettext \
     autopoint \
-    libtool \
-    python3-venv
+    libtool
 
 # Create symlinks for python commands
 RUN ln -sf /usr/bin/python3 /usr/bin/python
@@ -53,8 +54,21 @@ mount -o loop /btrfs.img /var/docker_demo' > /scripts/setup_btrfs.sh && \
 # Setup for creating base image 
 RUN mkdir -p /base-image
 
+# Copy current directory to image
+COPY . /w2d2
+
+# Create and activate virtual environment
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+
+# Install Python packages in the virtual environment
+RUN /venv/bin/pip install requests
+
 # Create entrypoint script
 RUN echo '#!/bin/bash \n\
+# Activate virtual environment \n\
+source /venv/bin/activate \n\
+\n\
 # Run btrfs setup script \n\
 /scripts/setup_btrfs.sh \n\
 \n\
@@ -66,12 +80,10 @@ if command -v docker &> /dev/null; then \n\
   docker rm temp || true \n\
 fi \n\
 \n\
+# Execute the Python script \n\
+python /w2d2/w2d2_solution.py \n\
 ' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 
-# Copy current directory to image
-COPY . /w2d2
-RUN pip install requests
-
 WORKDIR /w2d2
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "/entrypoint.sh"]
