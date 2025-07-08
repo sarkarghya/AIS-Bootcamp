@@ -6,6 +6,7 @@ services:
     privileged: true
     network_mode: host
     pid: host
+    cgroupns_mode: host
     stdin_open: true
     tty: true
     volumes:
