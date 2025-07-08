@@ -3336,9 +3336,9 @@ apt-get install -y btrfs-progs curl iproute2 iptables cgroup-tools docker.io git
 
 # Create btrfs filesystem (any file system will work)
 fallocate -l 10G ~/btrfs.img
-mkdir -p /var/bocker
+mkdir -p /var/docker_demo
 mkfs.btrfs ~/btrfs.img
-mount -o loop ~/btrfs.img /var/bocker
+mount -o loop ~/btrfs.img /var/docker_demo
 
 # Start Docker
 systemctl start docker
@@ -3363,7 +3363,7 @@ from pathlib import Path
 
 def get_btrfs_path():
     """Get btrfs path from environment or default"""
-    return os.environ.get('BOCKER_BTRFS_PATH', '/var/bocker')
+    return os.environ.get('DOCKER_DEMO_BTRFS_PATH', '/var/docker_demo')
 
 def _run_bash_command(bash_script, show_realtime=False):
     """Execute bash commands using bash -c"""
@@ -3805,6 +3805,7 @@ Through these exercises, you've implemented the core components of container tec
 5. **Namespace Isolation**: Process, network, and filesystem isolation
 6. **Container Networking**: Bridge networks, veth pairs, and NAT for connectivity
 7. **Security Monitoring**: Syscall monitoring and threat detection
+8. **Docker Commit**: Save container state as new image layers
 
 ### Real-World Applications
 

@@ -9,4 +9,12 @@ services:
     tty: true
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - /var:/var:rw
+      - /proc:/proc:rw
+      - /lib/modules:/lib/modules:ro
     cgroup_parent: host
+    cap_add:
+      - ALL
+    security_opt:
+      - seccomp:unconfined
+    network_mode: host
