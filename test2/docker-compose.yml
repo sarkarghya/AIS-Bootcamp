@@ -4,6 +4,7 @@ services:
   mydocker:
     build: .
     privileged: true
+    network_mode: host
     pid: host
     stdin_open: true
     tty: true
@@ -12,12 +13,19 @@ services:
       - /var:/var:rw
       - /proc:/proc:rw
       - /lib/modules:/lib/modules:ro
+      - /etc/resolv.conf:/etc/resolv.conf:ro
     cgroup_parent: host
     cap_add:
       - ALL
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-      - 1.1.1.1
     security_opt:
       - seccomp:unconfined
+      - apparmor:unconfined
+    devices:
+      - /dev/net/tun
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
