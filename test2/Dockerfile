@@ -68,6 +68,7 @@ RUN /venv/bin/pip install --upgrade pip && \
 
 # Create entrypoint script
 RUN echo '#!/bin/bash \n\
+set -e \n\
 # Activate virtual environment \n\
 source /venv/bin/activate \n\
 \n\
