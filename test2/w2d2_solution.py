@@ -184,7 +184,7 @@ import sys
 import os
 import platform
 from io import BytesIO
-from typing import Tuple, Dict, List, Optional, Any
+from typing import Optional, List, Union, Tuple, Dict, Any
 
 # Architecture detection
 TARGET_ARCH, TARGET_VARIANT = {
@@ -278,22 +278,41 @@ def parse_image_reference(image_ref: str) -> Tuple[str, str, str]:
         return registry, image, tag
     else:
         # TODO: Implement image reference parsing
-        # Handle different formats:
-        # - Full URLs with https://
-        # - Docker Hub shorthand (no registry specified)
-        # - Custom registries (has dots in first part)
-        # - Extract registry, image, and tag components
+        # - Check if the image reference starts with 'http' to identify full URLs
+        # - For full URLs, remove protocol and split by '/' to extract components
+        # - For custom registries, look for dots in the first part (e.g., gcr.io)
+        # - For Docker Hub images, default to 'registry-1.docker.io' and add 'library/' prefix if needed
+        # - Use rsplit(':', 1) to handle image names that might contain colons
+        # - Default to 'latest' tag if none is specified
         return "registry-1.docker.io", "library/hello-world", "latest"  # Placeholder return
 
 """
 <details>
 <summary>Hints</summary>
-- Check if the image reference starts with 'http' to identify full URLs
-- For full URLs, remove protocol and split by '/' to extract components
-- For custom registries, look for dots in the first part (e.g., gcr.io)
-- For Docker Hub images, default to 'registry-1.docker.io' and add 'library/' prefix if needed
-- Use rsplit(':', 1) to handle image names that might contain colons
-- Default to 'latest' tag if none is specified
+- Step 1: Check if image_ref starts with 'http' or 'https'
+  - If yes: Remove protocol, split by '/', extract registry from first part
+  - If '/manifests/' in URL: split image_parts by '/manifests/' to get image and tag
+  - If no '/manifests/': image is middle parts joined, tag is last part (or 'latest')
+
+- Step 2: For non-URL formats, detect custom registry vs Docker Hub
+  - If '/' in image_ref AND first part contains dots: it's a custom registry
+  - Split by '/' once: registry = first part, image_and_tag = second part
+  - If no custom registry detected: registry = 'registry-1.docker.io', image_and_tag = image_ref
+
+- Step 3: Handle Docker Hub library prefix
+  - If using Docker Hub and no '/' in image_and_tag: prefix with "library/"
+
+- Step 4: Extract image and tag from image_and_tag
+  - Use rsplit(':', 1) to split on rightmost colon (handles images with colons in name)
+  - If no colon found: tag defaults to 'latest'
+
+- Step 5: Return tuple (registry, image, tag)
+
+- Key edge cases to handle:
+  - "hello-world" → ("registry-1.docker.io", "library/hello-world", "latest")
+  - "ubuntu:20.04" → ("registry-1.docker.io", "library/ubuntu", "20.04")  
+  - "gcr.io/project/image:tag" → ("gcr.io", "project/image", "tag")
+  - "my-registry.com/org/repo" → ("my-registry.com", "org/repo", "latest")
 </details>
 """
 
@@ -358,6 +377,36 @@ The authentication flow:
 > 
 > You should spend up to ~10 minutes on this exercise.
 
+**API Usage Instructions:**
+
+Docker Hub uses token-based authentication for accessing private repositories and rate limiting. Here's how to get authentication tokens:
+
+#### 1. **Building the Authentication URL**
+Docker Hub's authentication service uses a specific URL format:
+- Format: `https://auth.docker.io/token?service=registry.docker.io&scope=repository:{image}:pull`
+- Example: `https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/hello-world:pull`
+- **What it does**: Requests a token with specific permissions for a repository
+
+#### 2. **Understanding Token Scopes**
+- **service**: Always `registry.docker.io` for Docker Hub
+- **scope**: Defines permissions in format `repository:{image}:pull`
+- **pull**: Permission type (pull, push, delete)
+
+#### 3. **Token Response Format**
+The API returns JSON with the token:
+```json
+{
+  "token": "eyJhbGciOiJSUzI1NiJ9...",
+  "access_token": "eyJhbGciOiJSUzI1NiJ9...",
+  "expires_in": 300
+}
+```
+
+#### 4. **Using the Token**
+- Extract the `token` field from the JSON response
+- Add it to HTTP headers as: `Authorization: Bearer {token}`
+- Include this header in all subsequent registry API calls
+
 Implement the `get_auth_token` function that gets authentication tokens for Docker Hub.
 """
 
@@ -384,16 +433,15 @@ def get_auth_token(registry: str, image: str) -> Dict[str, str]:
         return headers
     else:
         # TODO: Authentication implementation
-        # Put it in the hint. keep the todos
-        headers = {}
-        if registry == 'registry-1.docker.io':
-            # Get auth token for Docker Hub
-            token_url = f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{image}:pull"
-            token_resp = requests.get(token_url)
-            token_resp.raise_for_status()
-            token = token_resp.json()['token']
-            headers['Authorization'] = f'Bearer {token}'
-        return headers
+        # 1. Initialize empty headers dictionary
+        # 2. Check if registry is Docker Hub (registry-1.docker.io)
+        # 3. For Docker Hub, construct token URL with service and scope parameters
+        # 4. Make HTTP request to auth.docker.io/token
+        # 5. Parse JSON response to extract token
+        # 6. Add Authorization header with Bearer token
+        # 7. Return headers dictionary
+        return {}  # Placeholder return
+
 
 def test_get_auth_token(get_auth_token):
     """Test the authentication token retrieval."""
@@ -413,6 +461,18 @@ def test_get_auth_token(get_auth_token):
     print("✓ Authentication tests passed!\n" + "=" * 60)
 
 test_get_auth_token(get_auth_token)
+
+"""
+<details>
+<summary>Hints</summary>
+- Create empty headers = {}
+- If registry == 'registry-1.docker.io':
+  - Build URL: f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{image}:pull"
+  - Get token: requests.get(token_url).json()['token']
+  - Add header: headers['Authorization'] = f'Bearer {token}'
+- Return headers
+</details>
+"""
 
 # %%
 """
@@ -445,6 +505,45 @@ different platforms (architecture + variant combinations). Your task is to:
 > **Importance**: 🔵🔵🔵🔵⚪
 > 
 > You should spend up to ~20 minutes on this exercise.
+
+**API Usage Instructions:**
+
+Understanding Docker's multi-architecture support is crucial for modern containerization. Here's how to discover and select the right manifest:
+
+#### 1. **Building the Manifest List URL**
+Docker registries use a standardized API format for accessing manifests:
+- Format: `https://{registry}/v2/{image}/manifests/{tag}`
+- Example: `https://registry-1.docker.io/v2/library/hello-world/manifests/latest`
+- **What it does**: Fetches the manifest list containing all available architectures for an image
+
+#### 2. **Understanding Multi-Architecture Manifests**
+Modern Docker images support multiple CPU architectures:
+- **Manifest List**: Container for platform-specific manifests
+- **Platform Object**: Contains `architecture` (e.g., "amd64", "arm64") and optional `variant` (e.g., "v8")
+- **Architecture Matching**: Find the manifest that matches your target architecture
+
+#### 3. **Selecting the Right Architecture**
+The manifest list contains an array of manifests, each with platform information:
+```json
+{
+  "manifests": [
+    {
+      "platform": {"architecture": "amd64"},
+      "digest": "sha256:abc123..."
+    },
+    {
+      "platform": {"architecture": "arm64", "variant": "v8"},
+      "digest": "sha256:def456..."
+    }
+  ]
+}
+```
+
+#### 4. **Error Handling**
+If the requested architecture isn't available:
+- Collect all available architectures from the manifest list
+- Raise a helpful ValueError with available options
+- Include variant information when present
 
 Implement the `get_target_manifest` function that selects the appropriate architecture manifest.
 """
@@ -600,6 +699,47 @@ digests and sizes.
 > **Importance**: 🔵🔵🔵⚪⚪
 > 
 > You should spend up to ~15 minutes on this exercise.
+
+**API Usage Instructions:**
+
+Once you have the manifest digest, you need to fetch the actual manifest document to get layer information:
+
+#### 1. **Building the Manifest URL**
+Use the manifest digest to fetch the specific manifest:
+- Format: `https://{registry}/v2/{image}/manifests/{manifest_digest}`
+- Example: `https://registry-1.docker.io/v2/library/hello-world/manifests/sha256:abc123...`
+- **What it does**: Fetches the specific manifest document for an architecture
+
+#### 2. **Setting the Accept Header**
+Docker registries require specific content type headers:
+- Header: `Accept: application/vnd.docker.distribution.manifest.v2+json`
+- **Why needed**: Tells the registry which manifest format version to return
+- **Important**: Without this header, you might get an incompatible manifest format
+
+#### 3. **Manifest Document Structure**
+The manifest contains metadata about all layers:
+```json
+{
+  "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+  "layers": [
+    {
+      "digest": "sha256:layer1hash...",
+      "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size": 1234567
+    },
+    {
+      "digest": "sha256:layer2hash...",
+      "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip", 
+      "size": 2345678
+    }
+  ]
+}
+```
+
+#### 4. **Extracting Layer Information**
+- Get the `layers` array from the manifest JSON
+- Each layer object contains `digest` and `size` fields
+- Return the layers list for downloading
 
 Implement the `get_manifest_layers` function that fetches and processes the manifest.
 """
@@ -984,8 +1124,6 @@ Your task is to implement a function that:
 """
 
 import subprocess
-import os
-from typing import Optional, List, Union
 
 def run_chroot(chroot_dir: str, command: Optional[Union[str, List[str]]] = None) -> Optional[subprocess.CompletedProcess]:
     """
@@ -1135,11 +1273,8 @@ Cgroups are organized in a hierarchy in the `/sys/fs/cgroup` filesystem. To crea
 you need to create directories and write to control files to configure resource limits.
 """
 
-import subprocess
-import os
 import signal
 import time
-from typing import Optional, List, Union
 
 def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
     """
@@ -1151,9 +1286,6 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
         cpu_limit: CPU limit (not implemented yet)
     """
     if "SOLUTION":
-        import subprocess
-        import os
-        
         cgroup_path = f"/sys/fs/cgroup/{cgroup_name}"
         
         # Create cgroup directory
@@ -1254,8 +1386,6 @@ def add_process_to_cgroup(cgroup_name, pid=None):
         pid: Process ID (default: current process)
     """
     if "SOLUTION":
-        import os
-        
         if pid is None:
             pid = os.getpid()
         
@@ -1404,9 +1534,7 @@ print('Test completed - this should not be reached if limits work!')
 "
 EOF
     """
-    
-    import subprocess
-    import signal
+        
     try:
         # Use Popen to get real-time output and better control
         process = subprocess.Popen(['sh', '-c', script], 
@@ -1558,9 +1686,6 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         cpu_limit: CPU limit (not implemented yet)
     """
     if "SOLUTION":
-        import subprocess
-        import os
-        
         print(f"Setting up comprehensive cgroup Part 2: {cgroup_name}")
         
         # Start with Part 1 - Core Memory Management
@@ -1645,8 +1770,6 @@ print('Test completed - this should not be reached if limits work!')
 EOF
     """
     
-    import subprocess
-    import signal
     try:
         # Use Popen to get real-time output
         process = subprocess.Popen(['sh', '-c', script], 
@@ -1805,9 +1928,6 @@ resources that differs from other processes. Learn about [Linux namespaces in de
 - `unshare` command creates isolated namespaces before running the target command
 """
 
-import subprocess
-import os
-import signal
 
 def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memory_limit="100M"):
     """
@@ -2084,10 +2204,7 @@ A bridge network acts as a software switch that connects multiple network interf
 the bridge, we need iptables rules for NAT and packet forwarding to allow internet access.
 """
 
-import subprocess
-import os
 import uuid
-import signal
 
 # %%
 """
@@ -2107,6 +2224,11 @@ ip link set bridge0 down && ip link delete bridge0 && ip -all netns delete && fo
 > **Importance**: 🔵🔵🔵🔵🔵
 > 
 > You should spend up to ~10 minutes on this exercise.
+
+Key Linux networking concepts:
+- Bridge acts as a Layer 2 switch connecting multiple network interfaces
+- IP address 10.0.0.1/24 makes bridge the gateway for 10.0.0.0/24 subnet
+- 'up' state is required for interface to pass traffic
 
 Implement the bridge interface creation function that creates and configures bridge0.
 """
@@ -2806,36 +2928,12 @@ While we've learned how to extract Docker image layers, production container run
 
 ### How OverlayFS Works
 
-OverlayFS creates a unified view of multiple directories (layers) without actually merging them:
+OverlayFS creates a unified view of multiple directories (layers) without actually merging [them](./img/overlayfs.png).
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Container View                           │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  /app/config.json  (from writable layer)           │   │
-│  │  /usr/bin/python   (from python layer)             │   │  
-│  │  /bin/sh          (from base layer)                │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                            ▲                               │
-│                     OverlayFS Mount                        │
-│                            │                               │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                   Layer Stack                       │   │
-│  │  ┌─────────────────┐  (writable layer - container   │   │
-│  │  │ Upper Dir       │   changes)                     │   │
-│  │  └─────────────────┘                                │   │
-│  │  ┌─────────────────┐  (read-only layers - image     │   │
-│  │  │ Lower Dir 1     │   content)                     │   │
-│  │  └─────────────────┘                                │   │
-│  │  ┌─────────────────┐                                │   │
-│  │  │ Lower Dir 2     │                                │   │
-│  │  └─────────────────┘                                │   │
-│  │  ┌─────────────────┐                                │   │
-│  │  │ Lower Dir 3     │                                │   │
-│  │  └─────────────────┘                                │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
+<picture>
+<source srcset="https://github-production-user-asset-6210df.s3.amazonaws.com/67339217/465542600-f3c5a0a7-5d33-4236-b82a-638f79a0fed1.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAVCODYLSA53PQK4ZA%2F20250712%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250712T035745Z&X-Amz-Expires=300&X-Amz-Signature=45ee67253b6297e1497fc8fe2c73f55bde9e0d29b7cbdd4d3c2866b541ddcb1d&X-Amz-SignedHeaders=host" type="image/png">
+<source srcset="./img/overlayfs.png" type="image/png">
+</picture>
 
 **Key Benefits**:
 - **Space Efficient**: Multiple containers share the same base layers
@@ -2896,11 +2994,7 @@ Container escape attacks often involve:
 4. Manipulating container runtime to gain host access
 """
 
-import subprocess
 import threading
-import os
-import signal
-import uuid
 
 # Dangerous syscalls for CVE-2024-0137
 DANGEROUS_SYSCALLS = {
@@ -3169,8 +3263,6 @@ def test_security_alerts():
     print("Testing security alert handling...")
     
     # Create some real PIDs by spawning background processes
-    import subprocess
-    import time
     
     processes = []
     try:
@@ -3393,39 +3485,10 @@ The `docker commit` command is crucial for creating new image layers from runnin
 - **Data Science**: Save containers with installed packages and datasets
 
 The commit functionality you'll implement will enable these powerful Docker workflows by capturing container state and creating new image layers efficiently.
-
-SETUP:
-```bash
-apt-get update
-
-# Install required packages
-apt-get install -y btrfs-progs curl iproute2 iptables cgroup-tools docker.io git autoconf automake gettext autopoint libtool python3-pip python3-venv
-
-# Create btrfs filesystem (any file system will work)
-fallocate -l 10G ~/btrfs.img
-mkdir -p /var/docker_demo
-mkfs.btrfs ~/btrfs.img
-mount -o loop ~/btrfs.img /var/docker_demo
-
-# Start Docker
-systemctl start docker
-systemctl enable docker
-
-# Create base image manually
-docker pull almalinux:9
-docker create --name temp almalinux:9
-mkdir -p ~/base-image
-docker export temp | tar -xC ~/base-image
-docker rm temp
-```
 """
 
 import glob
-import os
 import random
-import subprocess
-import sys
-import time
 from pathlib import Path
 
 def get_btrfs_path():
@@ -3728,6 +3791,14 @@ def commit(args):
         echo "TODO: Implement commit functionality"
         """
     return _run_bash_command(bash_script)
+
+"""
+<details>
+<summary>Hints</summary>
+- Delete existing image subvolume: btrfs subvolume delete "{btrfs_path}/{image_id}"
+- Create snapshot from container: btrfs subvolume snapshot "{btrfs_path}/{container_id}" "{btrfs_path}/{image_id}"
+</details>
+"""
 
 
 def test_commit():
