@@ -15,10 +15,6 @@ This lab will teach you the building blocks that power modern containerization p
 
 <!-- toc -->
 
-This exercise explores Docker image layer extraction, container isolation, resource management, 
-and security monitoring. You'll implement custom container tools and understand how modern 
-container runtimes work under the hood.
-
 ## Content & Learning Objectives
 
 ### 1️⃣ Docker Image Layer Extraction
@@ -69,6 +65,43 @@ Implement the Docker commit functionality to save container changes as new image
 > - Implement container state capture
 > - Create new image layers from container modifications
 
+## Lab Setup
+
+### Build and Run Container
+```bash
+# Build Docker image from current directory
+docker build --network=host . -t mydocker
+
+# Run container with host networking and required privileges
+# - --network host: Use host networking
+# - --privileged: Run container with extended privileges
+# - --cgroupns=host: Use host's cgroup namespace
+# - -it: Interactive terminal
+# - -v /var/run/docker.sock:/var/run/docker.sock: Mount Docker socket
+docker run --network host --privileged --cgroupns=host -it -v /var/run/docker.sock:/var/run/docker.sock mydocker /bin/sh
+```
+
+### Inside Container
+```bash
+# Activate Python virtual environment
+. /venv/bin/activate
+
+# Run Python file
+python3 w2d2_solution.py
+```
+
+### Cleanup Docker Environment
+```bash
+# Stop all running containers
+docker stop $(docker ps -aq)
+
+# Remove all containers
+docker rm $(docker ps -aq)
+
+# Remove all unused containers, networks, images and volumes
+docker system prune --all --volumes
+```
+
 ## Understanding Containerization
 
 Before diving into the technical implementation, let's understand what containerization provides and why it became so popular in modern software deployment.
@@ -86,24 +119,9 @@ Key characteristics of containers:
 
 ### Container vs Virtual Machine Architecture
 
-```
-┌─────────────────────────────────────┐  ┌─────────────────────────────────────┐
-│            Virtual Machines         │  │             Containers              │
-├─────────────────────────────────────┤  ├─────────────────────────────────────┤
-│  App A  │  App B  │  App C          │  │  App A  │  App B  │  App C          │
-├─────────┼─────────┼─────────────────┤  ├─────────┼─────────┼─────────────────┤
-│ Bins/   │ Bins/   │ Bins/           │  │ Bins/   │ Bins/   │ Bins/           │
-│ Libs    │ Libs    │ Libs            │  │ Libs    │ Libs    │ Libs            │
-├─────────┼─────────┼─────────────────┤  ├─────────┼─────────┼─────────────────┤
-│Guest OS │Guest OS │Guest OS         │  │         Container Engine            │
-├─────────┼─────────┼─────────────────┤  ├─────────────────────────────────────┤
-│           Hypervisor                │  │            Host OS                  │
-├─────────────────────────────────────┤  ├─────────────────────────────────────┤
-│            Host OS                  │  │           Hardware                  │
-├─────────────────────────────────────┤  └─────────────────────────────────────┘
-│           Hardware                  │
-└─────────────────────────────────────┘
-```
+![Container vs Virtual Machine Architecture](https://www.criticalcase.com/wp-content/uploads/2021/02/SCHEMA-CONTAINER-VS-VM.png)
+
+A key difference is that containers virtualize the operating system, sharing the host OS kernel and packaging only the application and its dependencies, making them lightweight and fast. Virtual machines, in contrast, virtualize the underlying physical hardware and each run a full guest operating system, which provides strong isolation but requires more resources and longer startup times. 
 
 ### Linux Kernel Features for Containerization
 
@@ -120,18 +138,18 @@ Modern containerization relies on several Linux kernel features:
 2. **Control Groups (cgroups)**: Resource limiting and accounting ([Red Hat cgroups guide](https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/resource_management_guide/ch01))
    - Memory limits and usage tracking
    - CPU time and priority control
-   - I/O bandwidth limiting ([cgroups v2 documentation](https://www.kernel.org/doc/Documentation/cgroup-v2.txt))
+   - I/O bandwidth limiting ([cgroups v2 documentation](https://docs.kernel.org/admin-guide/cgroup-v2.html))
    - Device access control
 
 3. **Union Filesystems**: Layered filesystem management
-   - OverlayFS: Efficient copy-on-write filesystem ([OverlayFS documentation](https://www.kernel.org/doc/Documentation/filesystems/overlayfs.txt))
+   - OverlayFS: Efficient copy-on-write filesystem ([OverlayFS documentation](https://docs.kernel.org/filesystems/overlayfs.html))
    - AUFS: Another union filesystem (deprecated)
    - Device Mapper: Block-level storage driver
 
 4. **Security Features**: Additional isolation and access control
    - Capabilities: Fine-grained privilege control ([Linux capabilities manual](https://man7.org/linux/man-pages/man7/capabilities.7.html))
    - SELinux/AppArmor: Mandatory access control
-   - Seccomp: System call filtering ([seccomp tutorial](https://www.kernel.org/doc/Documentation/prctl/seccomp_filter.txt))
+   - Seccomp: System call filtering ([seccomp tutorial](https://www.armosec.io/blog/seccomp-internals-part-1/))
 
 ### Container Image Format
 
@@ -142,11 +160,11 @@ Container images are **layered filesystems** packaged in a standardized format. 
 ┌─────────────────────────────────────┐
 │     Application Layer               │  ← Your app and configs
 ├─────────────────────────────────────┤
-│     Runtime Dependencies           │  ← Python, Node.js, etc.
+│     Runtime Dependencies            │  ← Python, Node.js, etc.
 ├─────────────────────────────────────┤
-│     Package Manager Updates        │  ← apt update, yum update
+│     Package Manager Updates         │  ← apt update, yum update
 ├─────────────────────────────────────┤
-│     Base OS Layer                  │  ← Ubuntu, Alpine, etc.
+│     Base OS Layer                   │  ← Ubuntu, Alpine, etc.
 └─────────────────────────────────────┘
 ```
 
@@ -166,7 +184,7 @@ import sys
 import os
 import platform
 from io import BytesIO
-from typing import Tuple, Dict, List, Optional
+from typing import Tuple, Dict, List, Optional, Any
 
 # Architecture detection
 TARGET_ARCH, TARGET_VARIANT = {
@@ -201,8 +219,8 @@ Docker images can be referenced in multiple formats:
 
 ### Exercise - implement parse_image_reference
 
-> **Difficulty**: 🔴🔴🔴⚪⚪  
-> **Importance**: 🔵🔵🔵🔵⚪
+> **Difficulty**: 🔴🔴⚪⚪⚪  
+> **Importance**: 🔵🔵🔵⚪⚪
 > 
 > You should spend up to ~15 minutes on this exercise.
 
@@ -336,7 +354,7 @@ The authentication flow:
 ### Exercise - implement get_auth_token
 
 > **Difficulty**: 🔴🔴⚪⚪⚪  
-> **Importance**: 🔵🔵🔵🔵⚪
+> **Importance**: 🔵🔵🔵⚪⚪
 > 
 > You should spend up to ~10 minutes on this exercise.
 
@@ -423,8 +441,8 @@ different platforms (architecture + variant combinations). Your task is to:
 
 ### Exercise - implement get_target_manifest
 
-> **Difficulty**: 🔴🔴🔴🔴⚪  
-> **Importance**: 🔵🔵🔵🔵🔵
+> **Difficulty**: 🔴🔴🔴⚪⚪  
+> **Importance**: 🔵🔵🔵🔵⚪
 > 
 > You should spend up to ~20 minutes on this exercise.
 
@@ -578,15 +596,15 @@ digests and sizes.
 
 ### Exercise - implement get_manifest_layers
 
-> **Difficulty**: 🔴🔴🔴⚪⚪  
-> **Importance**: 🔵🔵🔵🔵⚪
+> **Difficulty**: 🔴🔴⚪⚪⚪  
+> **Importance**: 🔵🔵🔵⚪⚪
 > 
 > You should spend up to ~15 minutes on this exercise.
 
 Implement the `get_manifest_layers` function that fetches and processes the manifest.
 """
 
-def get_manifest_layers(registry: str, image: str, manifest_digest: str, headers: Dict[str, str]) -> List[Dict[str, any]]:
+def get_manifest_layers(registry: str, image: str, manifest_digest: str, headers: Dict[str, str]) -> List[Dict[str, Any]]:
     """
     Get the layer information from a manifest.
     
@@ -684,8 +702,8 @@ Each layer is a gzipped tar archive that needs to be extracted in order.
 
 ### Exercise - implement download_and_extract_layers
 
-> **Difficulty**: 🔴🔴🔴🔴⚪  
-> **Importance**: 🔵🔵🔵🔵🔵
+> **Difficulty**: 🔴🔴🔴⚪⚪  
+> **Importance**: 🔵🔵🔵🔵⚪
 > 
 > You should spend up to ~20 minutes on this exercise.
 
@@ -695,13 +713,13 @@ Implement the `download_and_extract_layers` function that downloads and extracts
 
 Think of Docker images like a layered cake! Each layer adds something new to the final image. Here's how to download and extract them:
 
-## 1. **Building the Download URL** 
+### 1. **Building the Download URL** 
 Think of this like creating an address to find a package online:
 - Format: `https://{registry}/v2/{image}/blobs/{digest}`
 - Example: `https://registry-1.docker.io/v2/library/hello-world/blobs/sha256:abc123...`
 - **What it means**: Just like how you need a complete address to mail a letter, you need the full URL to download a Docker layer
 
-## 2. **Unpacking the Compressed Files** 
+### 2. **Unpacking the Compressed Files** 
 Docker layers are like ZIP files that are also compressed (like a ZIP file inside another ZIP file):
 - **What they are**: Gzipped tar archives (`.tar.gz` files)
 - **How to open them**: 
@@ -709,7 +727,7 @@ Docker layers are like ZIP files that are also compressed (like a ZIP file insid
   - `tarfile.open(fileobj=BytesIO(...), mode='r:gz')` - opens the compressed archive
   - `tar.extractall(output_dir)` - extracts all files to your folder
 
-## 3. **Building the Final Image Layer by Layer** 
+### 3. **Building the Final Image Layer by Layer** 
 Like building with LEGO blocks, each layer adds something:
 - **Layer 1**: Base operating system (like the foundation of a house)
 - **Layer 2**: Application files (like adding rooms)
@@ -719,7 +737,7 @@ Like building with LEGO blocks, each layer adds something:
 **Real-world analogy**: Think of it like downloading and assembling a piece of furniture from IKEA - you get the parts (layers), unpack them, and build them in order!
 """
 
-def download_and_extract_layers(registry: str, image: str, layers: List[Dict[str, any]], 
+def download_and_extract_layers(registry: str, image: str, layers: List[Dict[str, Any]], 
                                headers: Dict[str, str], output_dir: str) -> None:
     """
     Download and extract all layers to the output directory.
@@ -915,44 +933,6 @@ def test_pull_layers_complete(pull_layers):
 test_pull_layers_complete(pull_layers)
 
 # %%
-"""
-## Summary: What We've Learned
-
-Through this exercise, you've built a complete Docker image extraction tool by implementing:
-
-1. **Image Reference Parsing**: Understanding different Docker image naming conventions and parsing them into components
-2. **Registry Authentication**: Implementing token-based authentication with Docker registries
-3. **Manifest Discovery**: Fetching manifest lists and selecting architecture-specific manifests
-4. **Manifest Processing**: Extracting layer information from manifest documents
-5. **Layer Extraction**: Downloading and extracting compressed layer archives
-
-### Key Insights
-
-- **Docker Image Structure**: Images are composed of layers, each representing filesystem changes
-- **Registry API**: Docker registries expose REST APIs for programmatic access
-- **Multi-Architecture Support**: Images can support multiple architectures through manifest lists
-- **Layer Composition**: Layers are applied in order to build the final filesystem
-- **Compression**: Layers are stored as gzipped tar archives for efficiency
-
-### Real-World Applications
-
-This knowledge helps you:
-- Build custom container tools and utilities
-- Understand container security and scanning
-- Optimize image builds and storage
-- Debug container runtime issues
-- Implement custom registry solutions
-
-### Security Considerations
-
-- Always validate image digests and signatures
-- Be cautious with untrusted registries
-- Implement proper authentication and authorization
-- Consider image scanning and vulnerability detection
-- Use minimal base images to reduce attack surface
-
-Remember: Understanding container internals is crucial for building secure, efficient containerized applications!
-"""
 pull_layers("alpine:latest", "./extracted_alpine")
 pull_layers("python:3.12-alpine", "./extracted_python") 
 
@@ -985,8 +965,8 @@ the host system. See [how Docker uses chroot](https://docs.docker.com/engine/sec
 
 ### Exercise - implement run_chroot
 
-> **Difficulty**: 🔴🔴🔴⚪⚪  
-> **Importance**: 🔵🔵🔵🔵🔵
+> **Difficulty**: 🔴🔴⚪⚪⚪  
+> **Importance**: 🔵🔵🔵🔵⚪
 > 
 > You should spend up to ~20 minutes on this exercise.
 
@@ -1116,43 +1096,6 @@ test_run_chroot(run_chroot)
 
 # %%
 """
-## Summary: Understanding Chroot
-
-Through this exercise, you've learned about chroot, a fundamental isolation mechanism:
-
-### Key Concepts
-
-1. **Filesystem Isolation**: Chroot creates a new root directory, isolating processes from the host filesystem
-2. **Process Containment**: Commands run in chroot can only access files within the specified directory tree
-3. **Container Foundation**: Chroot is one of the building blocks of modern container technology
-4. **Security Considerations**: While useful for isolation, chroot alone is not sufficient for complete security
-
-### Real-World Applications
-
-- **Container Runtimes**: Docker, Podman, and others use chroot-like mechanisms
-- **Build Systems**: Creating clean build environments
-- **Testing**: Isolating test environments from the host system
-- **Development**: Running applications in controlled environments
-
-### Security Notes
-
-- Chroot is not a complete security boundary - processes can potentially escape
-- Modern containers combine chroot with namespaces, cgroups, and other isolation techniques
-- Always validate and sanitize inputs when using chroot in production systems
-
-### Next Steps
-
-Understanding chroot prepares you for more advanced container concepts:
-- Namespaces for process, network, and user isolation
-- Cgroups for resource management
-- Capabilities for fine-grained permissions
-- Security contexts and AppArmor/SELinux integration
-
-Remember: Chroot is the foundation, but modern containers are much more sophisticated!
-""" 
-
-# %%
-"""
 # Container Resource Management: Cgroups
 
 Implement cgroups (control groups) for resource management and isolation in containers.
@@ -1181,8 +1124,8 @@ to manage resources fairly and prevent resource starvation. See how [Docker uses
 
 ### Exercise - implement create_cgroup
 
-> **Difficulty**: 🔴🔴🔴⚪⚪  
-> **Importance**: 🔵🔵🔵🔵⚪
+> **Difficulty**: 🔴🔴⚪⚪⚪  
+> **Importance**: 🔵🔵🔵⚪⚪
 > 
 > You should spend up to ~15 minutes on this exercise.
 
@@ -1290,12 +1233,12 @@ This can lead to:
 - Resource accounting inconsistencies
 - Potential security issues if the process escapes before cgroup assignment
 
-See run_in_cgroup_chroot() for a better approach because it directly adds the process to the cgroup before it chroots.
+See `run_in_cgroup_chroot()` for a better approach because it directly adds the process to the cgroup before it chroots.
 
 ### Exercise - implement add_process_to_cgroup
 
-> **Difficulty**: 🔴🔴⚪⚪⚪  
-> **Importance**: 🔵🔵🔵🔵⚪
+> **Difficulty**: 🔴⚪⚪⚪⚪  
+> **Importance**: 🔵🔵⚪⚪⚪
 > 
 > You should spend up to ~10 minutes on this exercise.
 
@@ -1376,8 +1319,8 @@ a more complete container-like environment.
 
 ### Exercise - implement run_in_cgroup_chroot
 
-> **Difficulty**: 🔴🔴🔴🔴⚪  
-> **Importance**: 🔵🔵🔵🔵🔵
+> **Difficulty**: 🔴🔴🔴⚪⚪  
+> **Importance**: 🔵🔵🔵🔵⚪
 > 
 > You should spend up to ~20 minutes on this exercise.
 
@@ -1513,7 +1456,7 @@ test_run_in_cgroup_chroot(run_in_cgroup_chroot)
 
 # %%
 """
-## Exercise 3.4: Comprehensive Cgroup Setup (Part 1)
+## Exercise 3.4: Comprehensive Cgroup Setup - Part 1
 
 This exercise implements core memory management features that form the foundation 
 of effective container resource isolation. Part 1 focuses on the critical memory 
@@ -1521,8 +1464,8 @@ controls needed to make resource limits actually work in production.
 
 ### Exercise - implement create_cgroup_comprehensive_part1 (core memory management)
 
-> **Difficulty**: 🔴🔴🔴🔴⚪  
-> **Importance**: 🔵🔵🔵🔵🔵
+> **Difficulty**: 🔴🔴🔴⚪⚪  
+> **Importance**: 🔵🔵🔵🔵⚪
 > 
 > You should spend up to ~20 minutes on this exercise.
 
@@ -1554,14 +1497,10 @@ def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=
         print(f"✓ Part 1 - Core memory management setup complete")
         return cgroup_path
     else:
-        # TODO: Implement comprehensive cgroup creation - Part 1: Core Memory Management
-        # 1. Create cgroup directory with proper error handling
-        # 2. Enable controllers (+cpu +memory +pids)
-        # 3. Set memory limits with validation
-        # 4. Disable swap (CRITICAL - write "0" to memory.swap.max)
-        # 5. Set memory pressure threshold (memory.high to 80% of max)
-        # 6. Validate all memory settings
-        # 7. Return cgroup path or None if critical steps fail
+        # TODO: Implement basic cgroup creation with swap disabling
+        # 1. Call create_cgroup() with the provided parameters
+        # 2. Disable swap
+        # 3. Return cgroup path or None if critical steps fail
         pass
 
 def test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1):
@@ -1589,19 +1528,16 @@ def test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1):
 test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1)
 
 # %%
-
-#  FIX ME: we want swap + memory
-
 """
-## Exercise 3.5: Comprehensive Cgroup Setup (Part 2)
+## Exercise 3.5: Comprehensive Cgroup Setup - Part 2 (Optional)
 
 This exercise builds on Part 1 by adding advanced Out-of-Memory (OOM) handling, 
 process management, and monitoring capabilities needed for production-ready container isolation.
 
 ### Exercise - implement create_cgroup_comprehensive (advanced OOM and process management)
 
-> **Difficulty**: 🔴🔴🔴🔴🔴  
-> **Importance**: 🔵🔵🔵🔵🔵
+> **Difficulty**: 🔴🔴🔴🔴⚪  
+> **Importance**: 🔵🔵🔵🔵⚪
 > 
 > You should spend up to ~25 minutes on this exercise.
 
@@ -1806,27 +1742,10 @@ Through these exercises, you've learned about cgroups using the actual implement
 3. **Process Management**: Assigning processes to resource groups
 4. **Container Foundation**: Cgroups + chroot + namespaces = containers
 
-### Real-World Applications
-
-- **Docker/Podman**: Use cgroups for container resource limits
-- **Kubernetes**: Implements resource requests/limits via cgroups
-- **Systemd**: Uses cgroups for service resource management
-- **LXC/LXD**: Container platforms built on cgroups
-
-### Production Considerations
-
-- **Memory Pressure**: Use memory.high to trigger pressure before OOM
-- **Swap Management**: Disable swap for predictable memory limits
-- **OOM Handling**: Configure OOM killer behavior for graceful degradation
-- **Monitoring**: Track cgroup statistics for resource usage
-
 ### Security Implications
 
 - **Resource Exhaustion**: Prevent DoS attacks through resource limits
 - **Isolation**: Limit blast radius of compromised containers
-- **Fair Sharing**: Ensure no single container can starve others
-
-Remember: These are the actual implementations used in real container systems!
 """ 
 
 # %%
@@ -2074,7 +1993,7 @@ test_namespace_isolation()
 """
 # Container Networking: Building a Real Container Network from Scratch
 
-## The Problem You're Solving
+### The Problem You're Solving
 
 So far, your containers are isolated islands - they can't talk to each other or access the internet. 
 Real containers need networking to communicate with each other and the outside world. In this section, 
@@ -2086,29 +2005,29 @@ you'll build the same networking infrastructure that Docker uses under the hood.
 - Host to communicate with containers
 - Network isolation between containers when needed
 
-## Your Network Architecture
+### Your Network Architecture
 
 You'll create this step-by-step:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Host Network                         │
-│  ┌─────────────┐    ┌──────────────────────────────────┐   │
-│  │   eth0      │    │           bridge0               │   │
-│  │ (internet)  │    │        10.0.0.1/24              │   │
-│  │             │◄──►│                                  │   │
-│  └─────────────┘    │  ┌─────────┐    ┌─────────────┐  │   │
-│                     │  │ veth0   │    │   veth1     │  │   │
-│                     │  │         │    │             │  │   │
-│                     └──┼─────────┼────┼─────────────┼──┘   │
-│                        │         │    │             │      │
-│  ┌─────────────────────┼─────────┼────┼─────────────┼──┐   │
-│  │     Container A     │         │    │ Container B │  │   │
-│  │   (netns_A)         │         │    │ (netns_B)   │  │   │
-│  │  ┌─────────────┐    │         │    │             │  │   │
-│  │  │    eth0     │◄───┘         │    │             │  │   │
-│  │  │ 10.0.0.100  │              │    │             │  │   │
-│  │  └─────────────┘              │    │             │  │   │
+│  ┌─────────────┐    ┌───────────────────────────────────┐   │
+│  │   eth0      │    │           bridge0                 │   │
+│  │ (internet)  │    │        10.0.0.1/24                │   │
+│  │             │◄──►│                                   │   │
+│  └─────────────┘    │  ┌─────────┐     ┌─────────────┐  │   │
+│                     │  │ veth0   │     │   veth1     │  │   │
+│                     │  │         │     │             │  │   │
+│                     └──┼─────────┼─────┼─────────────┼──┘   │
+│                        │         │     │             │      │
+│  ┌─────────────────────┼─────────┼─────┼─────────────┼──┐   │
+│  │     Container A     │         │     │ Container B │  │   │
+│  │   (netns_A)         │         │     │ (netns_B)   │  │   │
+│  │  ┌─────────────┐    │         │     │             │  │   │
+│  │  │    eth0     │◄───┘               │             │  │   │
+│  │  │ 10.0.0.100  │                    │             │  │   │
+│  │  └─────────────┘                    │             │  │   │
 │  └─────────────────────────────────────┼─────────────┼──┘   │
 │                                        │             │      │
 │  ┌─────────────────────────────────────┼─────────────┼──┐   │
@@ -2116,36 +2035,25 @@ You'll create this step-by-step:
 │  │   (netns_C)                         │             │  │   │
 │  │  ┌─────────────┐                    │             │  │   │
 │  │  │    eth0     │◄───────────────────┘             │  │   │
-│  │  │ 10.0.0.101  │                                  │  │   │
-│  │  └─────────────┘                                  │  │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  │  │ 10.0.0.101  │                                     │   │
+│  │  └─────────────┘                                     │   │
+│  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## What You'll Implement
+### What You'll Implement
 
-### Step 1: Bridge Network (Software Switch)
-Create a **bridge interface** (like `bridge0`) that acts as a virtual switch inside your host.
-- **Real-world**: This is exactly how Docker's default bridge network works
-- **Learn**: [Linux Bridge Tutorial](https://wiki.linuxfoundation.org/networking/bridge)
+#### Step 1: Bridge Network (Software Switch)
+Create a **bridge interface** (like `bridge0`) that acts as a virtual switch inside your host. Checkout [Linux Bridge Tutorial](https://wiki.linuxfoundation.org/networking/bridge)
 
-### Step 2: NAT and Internet Access  
-Set up **NAT (Network Address Translation)** so containers can access the internet.
-- **What NAT does**: Translates private container IPs (10.0.0.100) to your host's public IP
-- **Why needed**: Containers have private IPs that can't reach the internet directly
-- **Learn**: [NAT Explained](https://www.cloudflare.com/learning/network-layer/what-is-network-address-translation/) | [iptables NAT Tutorial](https://netfilter.org/documentation/HOWTO/NAT-HOWTO.html)
+#### Step 2: NAT and Internet Access  
+Set up **NAT (Network Address Translation)** so containers can access the internet. NAT works by translating private container IPs, such as 10.0.0.100, to your host's public IP. This setup is essential because containers use private IPs that cannot directly reach the internet without translation. To dive deeper, check out these resources: [NAT Explained](https://www.geeksforgeeks.org/computer-networks/network-address-translation-nat/) | [iptables NAT Tutorial](https://netfilter.org/documentation/HOWTO/NAT-HOWTO.html).
 
-### Step 3: Virtual Ethernet Pairs (veth)
-Create **veth pairs** - virtual network cables connecting containers to the bridge.
-- **How it works**: One end goes in the container, other end connects to bridge
-- **Real-world**: Docker creates a veth pair for every container
-- **Learn**: [Linux Virtual Networking](https://developers.redhat.com/blog/2018/10/22/introduction-to-linux-interfaces-for-virtual-networking)
+#### Step 3: Virtual Ethernet Pairs (veth)  
+Create **veth pairs** - virtual network cables connecting containers to the bridge. These pairs function by placing one end inside the container and attaching the other end to the bridge, effectively linking everything together. In practice, tools like Docker automatically generate a veth pair for each container to handle this connectivity. For more details, explore this guide: [Linux Virtual Networking](https://developers.redhat.com/blog/2018/10/22/introduction-to-linux-interfaces-for-virtual-networking).
 
-### Step 4: Network Namespaces
-Put each container in its own **network namespace** for isolation.
-- **What it does**: Each container sees only its own network interfaces
-- **Why important**: Prevents containers from interfering with each other
-- **Learn**: [Network Namespaces Guide](https://www.kernel.org/doc/Documentation/networking/namespaces.txt)
+#### Step 4: Network Namespaces  
+Put each container in its own **network namespace** for isolation. This approach ensures that each container only sees its own network interfaces, creating a segregated environment. It's crucial for preventing containers from interfering with one another and maintaining security. To learn more, watch this: [Network Namespaces Guide](https://www.youtube.com/watch?v=j_UUnlVC2Ss).
 
 
 <details>
@@ -2959,17 +2867,17 @@ Our layer extraction approach is educational but inefficient for production:
 
 # %%
 """
-# 6. Container Security Monitoring
+## Container Security Monitoring
 
 In this exercise, you'll implement security monitoring for containers to detect potential escape attempts
 and malicious syscalls. This is crucial for preventing CVE-2024-0137 and similar container escape vulnerabilities. Learn about [container security fundamentals](https://kubernetes.io/docs/concepts/security/) and [strace system call tracing](https://man7.org/linux/man-pages/man1/strace.1.html).
 
-## Introduction
+**Introduction**
 
 Container security monitoring involves tracking system calls that could indicate escape attempts or 
 malicious behavior. Learn more about [container escape techniques](https://blog.trailofbits.com/2019/07/19/understanding-docker-container-escapes/) and [runtime security monitoring](https://falco.org/docs/). Key concepts include:
 
-- **Syscall Monitoring**: Using strace to monitor dangerous system calls in real-time ([strace tutorial](https://blog.packagecloud.io/eng/2016/02/29/how-to-use-strace/))
+- **Syscall Monitoring**: Using strace to monitor dangerous system calls in real-time ([strace tutorial](https://docs.redhat.com/en/documentation/red_hat_developer_toolset/9/html/user_guide/chap-strace))
 - **CVE-2024-0137**: A container escape vulnerability involving namespace manipulation ([CVE details](https://nvidia.custhelp.com/app/answers/detail/a_id/5599))
 - **Security Alerting**: Real-time detection and response to suspicious activities  
 - **Process Termination**: Killing malicious processes before they can escape the container
@@ -2986,12 +2894,6 @@ Container escape attacks often involve:
 2. Joining host namespaces to break out of isolation
 3. Mounting host filesystems to access sensitive data
 4. Manipulating container runtime to gain host access
-
-## Content & Learning Objectives
-
-### 6.1 Syscall Monitoring
-### 6.2 Security Alert Handling  
-### 6.3 Complete Security Monitoring
 """
 
 import subprocess
@@ -3021,7 +2923,7 @@ While this exercise demonstrates blacklist-based syscall monitoring for educatio
 ### Exercise - implement monitor_container_syscalls
 
 > **Difficulty**: 🔴🔴🔴🔴⚪  
-> **Importance**: 🔵🔵🔵🔵🔵
+> **Importance**: 🔵🔵🔵🔵⚪
 > 
 > You should spend up to ~20 minutes on this exercise.
 
@@ -3207,8 +3109,8 @@ CVE-2024-0137 specifically involves namespace escape attempts that we need to de
 
 ### Exercise - implement security_alert_handler
 
-> **Difficulty**: 🔴⚪⚪⚪⚪  
-> **Importance**: 🔵🔵🔵⚪⚪ 
+> **Difficulty**: 🔴🔴⚪⚪⚪  
+> **Importance**: 🔵🔵🔵⚪⚪
 > 
 > You should spend up to ~15 minutes on this exercise.
 
@@ -3318,7 +3220,7 @@ monitored container that can detect and respond to escape attempts in real-time.
 
 ### Exercise - implement run_monitored_container
 
-> **Difficulty**: 🔴🔴🔴🔴🔴  
+> **Difficulty**: 🔴🔴🔴🔴⚪  
 > **Importance**: 🔵🔵🔵🔵🔵
 > 
 > You should spend up to ~25 minutes on this exercise.
@@ -3455,11 +3357,11 @@ test_monitored_container_attack()
 
 In this exercise, you'll implement the Docker commit functionality to save container changes as new image layers. This is essential for creating persistent images from running containers. Learn about [Docker commit operations](https://docs.docker.com/reference/cli/docker/container/commit/) and [image layer management](https://docs.docker.com/storage/storagedriver/).
 
-## Introduction
+**Introduction**
 
 Docker's layered filesystem architecture is one of its most powerful features, enabling efficient image storage and sharing. Each Docker image consists of multiple read-only layers stacked on top of each other, with each layer representing a set of filesystem changes.
 
-## Understanding Docker Layers
+**Understanding Docker Layers**
 
 When you create a Docker image, each instruction in the Dockerfile creates a new layer:
 - **Base Layer**: Contains the operating system files
@@ -3467,7 +3369,7 @@ When you create a Docker image, each instruction in the Dockerfile creates a new
 - **Application Layer**: Contains your application code and dependencies
 - **Configuration Layer**: Includes environment variables, exposed ports, etc.
 
-## The Commit Process
+**The Commit Process**
 
 The `docker commit` command is crucial for creating new image layers from running containers. Here's how it works:
 
@@ -3476,14 +3378,14 @@ The `docker commit` command is crucial for creating new image layers from runnin
 3. **Metadata Preservation**: Container configuration, environment variables, and other metadata are preserved
 4. **Image Tagging**: The new layer is associated with a specific image name/tag
 
-## Benefits of Layering
+**Benefits of Layering**
 
 - **Storage Efficiency**: Multiple images can share the same base layers
 - **Fast Deployment**: Only changed layers need to be transferred
 - **Version Control**: Each commit creates a new version of your image
 - **Rollback Capability**: You can easily revert to previous image versions
 
-## Real-World Use Cases
+**Real-World Use Cases**
 
 - **Development Workflows**: Commit experimental changes to test new features
 - **Debugging**: Save container state for analysis after issues occur
@@ -3763,7 +3665,7 @@ You'll need to:
 The commit process essentially creates a new image layer that captures all changes made to the container since it was created from its base image.
 
 > **Difficulty**: 🔴🔴🔴⚪⚪  
-> **Importance**: 🔵🔵🔵🔵🔵 
+> **Importance**: 🔵🔵🔵🔵⚪ 
 > 
 > You should spend up to ~15 minutes on this exercise.
 
