@@ -265,7 +265,19 @@ def parse_image_reference(image_ref: str) -> Tuple[str, str, str]:
         # - Docker Hub shorthand (no registry specified)
         # - Custom registries (has dots in first part)
         # - Extract registry, image, and tag components
-        pass
+        return "registry-1.docker.io", "library/hello-world", "latest"  # Placeholder return
+
+"""
+<details>
+<summary>Hints</summary>
+- Check if the image reference starts with 'http' to identify full URLs
+- For full URLs, remove protocol and split by '/' to extract components
+- For custom registries, look for dots in the first part (e.g., gcr.io)
+- For Docker Hub images, default to 'registry-1.docker.io' and add 'library/' prefix if needed
+- Use rsplit(':', 1) to handle image names that might contain colons
+- Default to 'latest' tag if none is specified
+</details>
+"""
 
 def test_parse_image_reference(parse_image_reference):
     """Test the image reference parsing function."""
@@ -354,6 +366,7 @@ def get_auth_token(registry: str, image: str) -> Dict[str, str]:
         return headers
     else:
         # TODO: Authentication implementation
+        # Put it in the hint. keep the todos
         headers = {}
         if registry == 'registry-1.docker.io':
             # Get auth token for Docker Hub
@@ -484,7 +497,21 @@ def get_target_manifest(registry: str, image: str, tag: str, headers: Dict[str, 
         # 3. Parse JSON response
         # 4. Find manifest matching target_arch and target_variant
         # 5. Return the digest, or raise ValueError if not found
-        pass
+        return "sha256:placeholder"  # Placeholder return
+
+"""
+<details>
+<summary>Hints</summary>
+- Build the manifest list URL using the format: https://{registry}/v2/{image}/manifests/{tag}
+- Use requests.get() with the provided headers to fetch the manifest list
+- Parse the JSON response and look for the 'manifests' array
+- Iterate through each manifest and check the 'platform' object
+- Match target_arch with platform.architecture
+- If target_variant is specified, also match it with platform.variant
+- Return the 'digest' field from the matching manifest
+- If no match is found, collect available architectures and raise ValueError with helpful message
+</details>
+"""
 
 def test_get_target_manifest(get_target_manifest, get_auth_token):
     """Test the manifest discovery function."""
@@ -503,6 +530,7 @@ def test_get_target_manifest(get_target_manifest, get_auth_token):
         print("✓ AMD64 manifest discovery works")
     except Exception as e:
         print(f"AMD64 test failed: {e}")
+        exit(1)
     
     # Test 2: Find arm64 manifest
     try:
@@ -511,6 +539,7 @@ def test_get_target_manifest(get_target_manifest, get_auth_token):
         print("✓ ARM64 manifest discovery works")
     except Exception as e:
         print(f"ARM64 test failed: {e}")
+        exit(1)
     
     # Test 3: Invalid architecture should raise ValueError
     try:
@@ -520,6 +549,7 @@ def test_get_target_manifest(get_target_manifest, get_auth_token):
         print("✓ Invalid architecture handling works")
     except Exception as e:
         print(f"Unexpected error: {e}")
+        exit(1)
     
     print("✓ Manifest discovery tests passed!\n" + "=" * 60)
 
@@ -592,7 +622,7 @@ def get_manifest_layers(registry: str, image: str, manifest_digest: str, headers
         # 3. Make HTTP request
         # 4. Parse JSON and extract layers
         # 5. Return list of layer dictionaries
-        pass
+        return []  # Placeholder return
 
 def test_get_manifest_layers(get_manifest_layers, get_auth_token, get_target_manifest):
     """Test the manifest processing function."""
@@ -626,6 +656,7 @@ def test_get_manifest_layers(get_manifest_layers, get_auth_token, get_target_man
         
     except Exception as e:
         print(f"Manifest processing test failed: {e}")
+        exit(1)
     
     print("✓ Manifest processing tests passed!\n" + "=" * 60)
 
@@ -662,21 +693,30 @@ Implement the `download_and_extract_layers` function that downloads and extracts
 
 **API Usage Instructions:**
 
-1. **Docker Registry Blob URL Format**: `https://{registry}/v2/{image}/blobs/{digest}` ([registry blob API](https://docs.docker.com/registry/spec/api/#pulling-a-layer))
-   - Example: `https://registry-1.docker.io/v2/library/hello-world/blobs/sha256:abc123...`
+Think of Docker images like a layered cake! Each layer adds something new to the final image. Here's how to download and extract them:
 
-2. **Streaming Downloads**: Use `requests.get(url, headers=headers, stream=True)` for large files ([requests streaming guide](https://requests.readthedocs.io/en/latest/user/advanced/#streaming-requests))
-   - This prevents loading entire blobs into memory at once
-   - Call `.raise_for_status()` to check for HTTP errors
+## 1. **Building the Download URL** 
+Think of this like creating an address to find a package online:
+- Format: `https://{registry}/v2/{image}/blobs/{digest}`
+- Example: `https://registry-1.docker.io/v2/library/hello-world/blobs/sha256:abc123...`
+- **What it means**: Just like how you need a complete address to mail a letter, you need the full URL to download a Docker layer
 
-3. **Gzipped Tar Extraction**: Layers are stored as compressed tar archives ([gzip format specs](https://tools.ietf.org/html/rfc1952))
-   - Use `BytesIO(blob_resp.content)` to create a file-like object from downloaded bytes
-   - Use `tarfile.open(fileobj=BytesIO(...), mode='r:gz')` to read gzipped tar from memory
-   - Extract with `tar.extractall(output_dir)` to unpack all files
+## 2. **Unpacking the Compressed Files** 
+Docker layers are like ZIP files that are also compressed (like a ZIP file inside another ZIP file):
+- **What they are**: Gzipped tar archives (`.tar.gz` files)
+- **How to open them**: 
+  - `BytesIO(blob_resp.content)` - turns the downloaded data into a file-like object
+  - `tarfile.open(fileobj=BytesIO(...), mode='r:gz')` - opens the compressed archive
+  - `tar.extractall(output_dir)` - extracts all files to your folder
 
-4. **Layer Processing**: Process layers in order to build the filesystem layer by layer ([Docker layer concepts](https://www.docker.com/blog/docker-1-10/))
-   - Each layer represents filesystem changes (additions, modifications, deletions)
-   - Later layers override earlier layers (like Git commits)
+## 3. **Building the Final Image Layer by Layer** 
+Like building with LEGO blocks, each layer adds something:
+- **Layer 1**: Base operating system (like the foundation of a house)
+- **Layer 2**: Application files (like adding rooms)
+- **Layer 3**: Configuration files (like adding furniture)
+- **Important**: Later layers can replace earlier ones (like updating a LEGO model)
+
+**Real-world analogy**: Think of it like downloading and assembling a piece of furniture from IKEA - you get the parts (layers), unpack them, and build them in order!
 """
 
 def download_and_extract_layers(registry: str, image: str, layers: List[Dict[str, any]], 
@@ -760,6 +800,7 @@ def test_download_and_extract_layers(download_and_extract_layers, get_auth_token
         
     except Exception as e:
         print(f"Layer download test failed: {e}")
+        exit(1)
     
     print("✓ Layer download and extraction tests passed!\n" + "=" * 60)
 
@@ -868,7 +909,7 @@ def test_pull_layers_complete(pull_layers):
             
         except Exception as e:
             print(f"Failed to extract {image_ref}: {e}")
-    
+            exit(1)
     print("✓ Complete pull_layers tests passed!\n" + "=" * 60)
 
 test_pull_layers_complete(pull_layers)
@@ -1001,9 +1042,6 @@ def run_chroot(chroot_dir: str, command: Optional[Union[str, List[str]]] = None)
             if result.stderr:
                 print(f"stderr:\n{result.stderr}")
             return result
-        except subprocess.TimeoutExpired:
-            print("Command timed out after 30 seconds")
-            return None
         except Exception as e:
             print(f"Error running chroot: {e}")
             return None
@@ -1186,6 +1224,7 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
             print("Enabled cgroup controllers")
         except Exception as e:
             print(f"Warning: Could not enable controllers: {e}")
+            exit(1)
         
         # Set memory limit if specified
         if memory_limit:
@@ -1196,7 +1235,7 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
                 print(f"Set memory limit to {memory_limit}")
             except Exception as e:
                 print(f"Error setting memory limit: {e}")
-        
+                exit(1)
         return cgroup_path
     else:
         # TODO: Implement basic cgroup creation
@@ -1244,6 +1283,15 @@ Assign processes to cgroups for resource management.
 Once a cgroup is created, processes can be assigned to it by writing their PIDs to the 
 `cgroup.procs` file. This allows the cgroup to manage resources for those processes.
 
+WARNING: This approach has race conditions! 
+The process may already be running and consuming resources before being added to the cgroup.
+This can lead to:
+- Memory limits not being enforced if the process allocates memory before being added
+- Resource accounting inconsistencies
+- Potential security issues if the process escapes before cgroup assignment
+
+See run_in_cgroup_chroot() for a better approach because it directly adds the process to the cgroup before it chroots.
+
 ### Exercise - implement add_process_to_cgroup
 
 > **Difficulty**: 🔴🔴⚪⚪⚪  
@@ -1277,7 +1325,7 @@ def add_process_to_cgroup(cgroup_name, pid=None):
             return True
         except Exception as e:
             print(f"Error adding process to cgroup: {e}")
-            return False
+            exit(1)
     else:
         # TODO: Implement process assignment to cgroup
         # 1. Use current process PID if none specified
@@ -1365,12 +1413,9 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
             # Run without capturing output so we see it in real-time
             result = subprocess.run(['sh', '-c', script], timeout=60)
             return result
-        except subprocess.TimeoutExpired:
-            print("Command timed out after 60 seconds")
-            return None
         except Exception as e:
             print(f"Error running command: {e}")
-            return None
+            exit(1)
     else:
         # TODO: Implement combined cgroup-chroot execution
         # 1. Create cgroup with memory limit
@@ -1428,12 +1473,8 @@ EOF
         
         # Stream output in real-time
         if process.stdout:
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    print(output.strip())
+            for line in iter(process.stdout.readline, ''):
+                print(line.strip())
         
         process.wait(timeout=60)
         
@@ -1449,12 +1490,9 @@ EOF
             print(f"\n? Process exited with code {process.returncode}")
         
         return process.returncode
-    except subprocess.TimeoutExpired:
-        print("\n✗ Test timed out")
-        return None
     except Exception as e:
         print(f"\n✗ Error: {e}")
-        return None
+        exit(1)
 
 def test_run_in_cgroup_chroot(run_in_cgroup_chroot):
     """Test the combined cgroup-chroot execution function."""
@@ -1551,6 +1589,9 @@ def test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1):
 test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1)
 
 # %%
+
+#  FIX ME: we want swap + memory
+
 """
 ## Exercise 3.5: Comprehensive Cgroup Setup (Part 2)
 
@@ -1701,12 +1742,9 @@ EOF
             print(f"\n? Process exited with code {process.returncode}")
         
         return process.returncode
-    except subprocess.TimeoutExpired:
-        print("\n✗ Test timed out")
-        return None
     except Exception as e:
         print(f"\n✗ Error: {e}")
-        return None
+        exit(1)
 
 
 def test_create_cgroup_comprehensive(test_memory_comprehensive):
@@ -1723,6 +1761,7 @@ def test_create_cgroup_comprehensive(test_memory_comprehensive):
             test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
         except Exception as e:
             print(f"Child process error: {e}")
+            exit(1)
         finally:
             # Child must exit explicitly to avoid continuing parent code
             os._exit(0)
@@ -1750,6 +1789,7 @@ def test_create_cgroup_comprehensive(test_memory_comprehensive):
             
         except Exception as e:
             print(f"Error waiting for child: {e}")
+            exit(1)
     print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
 
 test_create_cgroup_comprehensive(test_memory_comprehensive)
@@ -1895,16 +1935,17 @@ def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memor
                 
                 # Step 4: Execute with namespace isolation using unshare
                 # unshare creates new namespaces, then chroot isolates filesystem
-                os.execvp('unshare', [
+                # Execute command with namespace isolation
+                subprocess.run([
                     'unshare',
-                    '--pid',    # New PID namespace
-                    '--mount',  # New mount namespace  
-                    '--net',    # New network namespace
-                    '--uts',    # New hostname namespace
-                    '--ipc',    # New IPC namespace
+                    '--pid',    # Process ID namespace isolation
+                    '--mount',  # Mount namespace isolation  
+                    '--net',    # Network namespace isolation
+                    '--uts',    # Hostname namespace isolation
+                    '--ipc',    # IPC namespace isolation
                     '--fork',   # Fork after creating namespaces
                     'chroot', chroot_dir  # Change root directory
-                ] + command)
+                ] + command, check=True)
                 
             else:
                 # PARENT PROCESS EXECUTION PATH
@@ -1930,25 +1971,41 @@ def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memor
             
         except Exception as e:
             print(f"Error running command: {e}")
-            return None
+            exit(1)
     else:
         # TODO: Implement namespace isolation following these steps:
         
         # Step 1: Fork a child process
+        # (Creates a copy of our program - parent and child run separately)
+        # Learn more: https://linuxhint.com/fork-system-call-linux/
         
         # Step 2: In child process:
-        #   - Set up signal handler for SIGUSR1
-        #   - Wait for parent's signal
-        #   - After receiving signal, use unshare command
-        #   - Unshare flags: --pid --mount --net --uts --ipc --fork
+        #   - Set up signal handler for SIGUSR1 (like a doorbell to wake up the child)
+        #     See: https://docs.python.org/3/library/signal.html
+        #   - Wait for parent to finish setup and send a signal
+        #   - After receiving signal, use unshare command to create isolated environments:
+        #     See: https://man7.org/linux/man-pages/man1/unshare.1.html
         
         # Step 3: In parent process:
-        #   - Add child PID to cgroup
-        #   - Send SIGUSR1 signal to child
-        #   - Wait for child completion
-        #   - Extract and return exit code
+        #   - Add child PID to cgroup (to limit resources like memory/CPU)
+        #   - Send SIGUSR1 signal to child (tells it "you're ready to start")
+        #   - Wait for child to finish running
+        #   - Get the exit code to report success/failure
         
         pass
+
+"""
+<details>
+<summary>Hints</summary>
+- Use os.fork() to create a child process - it returns 0 in child, child PID in parent
+- In child process: set up signal handler with signal.signal(signal.SIGUSR1, handler)
+- Use signal.pause() to wait for parent's signal before continuing
+- Use subprocess.run() with unshare command: ['unshare', '--pid', '--mount', '--net', '--uts', '--ipc', '--fork', 'chroot', chroot_dir] + command
+- In parent process: add child PID to cgroup using add_process_to_cgroup()
+- Send signal to child with os.kill(pid, signal.SIGUSR1)
+- Wait for child completion with os.waitpid(pid, 0) and extract exit code with os.WEXITSTATUS()
+</details>
+"""
 
 
 def test_namespace_isolation():
@@ -1975,6 +2032,7 @@ def test_namespace_isolation():
             print(f"  {cmd}: {result.stdout.strip()}")
         except Exception as e:
             print(f"  {cmd}: Error - {e}")
+            exit(1)
     
     print("\n2. Namespaced container info:")
     # Create separate commands that won't fail if one fails
@@ -2004,6 +2062,7 @@ def test_namespace_isolation():
         print(f"  Host hostname: {result.stdout.strip()}")
     except Exception as e:
         print(f"  Could not check host hostname: {e}")
+        exit(1)
     
     print("\n=== Namespace isolation test complete ===")
     return True
@@ -2201,6 +2260,19 @@ def create_bridge_interface():
         #   - Bring bridge0 up
         pass
 
+"""
+<details>
+<summary>Hints</summary>
+- Check if bridge0 exists using: subprocess.run(['ip', 'link', 'show', 'bridge0'], capture_output=True, text=True)
+- If bridge exists, check if it has the correct IP using: subprocess.run(['ip', 'addr', 'show', 'bridge0'], capture_output=True, text=True)
+- Remove existing bridge with: subprocess.run(['ip', 'link', 'del', 'bridge0'], capture_output=True, text=True)
+- Create bridge with: subprocess.run(['ip', 'link', 'add', 'bridge0', 'type', 'bridge'], check=True)
+- Add IP address with: subprocess.run(['ip', 'addr', 'add', '10.0.0.1/24', 'dev', 'bridge0'], check=True)
+- Bring interface up with: subprocess.run(['ip', 'link', 'set', 'bridge0', 'up'], check=True)
+- Handle exceptions and return True/False based on success
+</details>
+"""
+
 
 def test_bridge_interface():
     """Test bridge interface creation"""
@@ -2221,6 +2293,7 @@ def test_bridge_interface():
                 print("⚠ Bridge connectivity test FAILED (may be normal)")
         except Exception as e:
             print(f"⚠ Could not test bridge connectivity: {e}")
+            exit(1)
     else:
         print("✗ Bridge interface creation failed")
         print("CRITICAL: Bridge setup is required for container networking")
@@ -2300,9 +2373,6 @@ def setup_nat_forwarding():
             print("✓ NAT and forwarding setup completed successfully")
             return True
             
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Error setting up NAT and forwarding: {e}")
-            return False
         except Exception as e:
             print(f"✗ Unexpected error: {e}")
             return False
@@ -2315,6 +2385,18 @@ def setup_nat_forwarding():
         #   - Add NAT rule for MASQUERADE
         #   - Add forwarding rules between bridge and default interface
         pass
+
+"""
+<details>
+<summary>Hints</summary>
+- Enable IP forwarding with: subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], capture_output=True, text=True, check=True)
+- Get default interface with: subprocess.run(['ip', 'route', 'show', 'default'], capture_output=True, text=True, check=True) and extract the 5th field
+- Clear iptables rules with: ['iptables', '-F'], ['iptables', '-t', 'nat', '-F'], ['iptables', '-t', 'mangle', '-F'], ['iptables', '-X']
+- Set default policies to ACCEPT with: ['iptables', '-P', 'FORWARD', 'ACCEPT'], etc.
+- Add NAT rule: ['iptables', '-t', 'nat', '-A', 'POSTROUTING', '-s', '10.0.0.0/24', '!', '-o', 'bridge0', '-j', 'MASQUERADE']
+- Add forwarding rules for bridge0 to default interface and back
+</details>
+"""
 
 def setup_bridge_network():
     """
@@ -2342,15 +2424,13 @@ def test_nat_forwarding():
         print("✓ NAT and forwarding setup successful!")
         
         # Test IP forwarding is enabled
-        try:
-            with open('/proc/sys/net/ipv4/ip_forward', 'r') as f:
-                forward_status = f.read().strip()
-            if forward_status == '1':
-                print("✓ IP forwarding is enabled")
-            else:
-                print("⚠ IP forwarding may not be enabled")
-        except Exception as e:
-            print(f"⚠ Could not check IP forwarding status: {e}")
+
+        with open('/proc/sys/net/ipv4/ip_forward', 'r') as f:
+            forward_status = f.read().strip()
+        if forward_status == '1':
+            print("✓ IP forwarding is enabled")
+        else:
+            print("⚠ IP forwarding may not be enabled")
     else:
         print("✗ NAT and forwarding setup failed")
     
@@ -2526,18 +2606,22 @@ def create_container_network(container_id, ip_suffix):
             
             return netns_name
         
-    except subprocess.CalledProcessError as e:
-        print(f"✗ Error creating isolated network namespace: {e}")
-        print(f"   Command: {e.cmd}")
-        print(f"   Return code: {e.returncode}")
-        if e.stdout:
-            print(f"   Stdout: {e.stdout}")
-        if e.stderr:
-            print(f"   Stderr: {e.stderr}")
-        return None
     except Exception as e:
         print(f"✗ Unexpected error: {e}")
         return None
+
+"""
+<details>
+<summary>Hints</summary>
+- Create shorter interface names (Linux limit: 15 characters) using container_id[-8:]
+- Create veth pair with: subprocess.run(['ip', 'link', 'add', 'dev', veth_host, 'type', 'veth', 'peer', 'name', veth_container])
+- Attach host end to bridge: subprocess.run(['ip', 'link', 'set', veth_host, 'master', 'bridge0'])
+- Create network namespace: subprocess.run(['ip', 'netns', 'add', netns_name])
+- Move container end to namespace: subprocess.run(['ip', 'link', 'set', veth_container, 'netns', netns_name])
+- Configure container interface: set up loopback, add IP address, bring interface up
+- Add default route: subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'route', 'add', 'default', 'via', '10.0.0.1'])
+</details>
+"""
 
 
 def cleanup_container_network(container_id):
@@ -2601,15 +2685,12 @@ def test_container_network():
         
         # Test connectivity from namespace
         print("Testing namespace connectivity...")
-        try:
-            test_result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '10.0.0.1'], 
-                                       capture_output=True, text=True)
-            if test_result.returncode == 0:
-                print("✓ Gateway connectivity test PASSED")
-            else:
-                print("⚠ Gateway connectivity test FAILED")
-        except Exception as e:
-            print(f"⚠ Could not test connectivity: {e}")
+        test_result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '10.0.0.1'], 
+                                    capture_output=True, text=True)
+        if test_result.returncode == 0:
+            print("✓ Gateway connectivity test PASSED")
+        else:
+            print("⚠ Gateway connectivity test FAILED")
         
         # Clean up
         cleanup_container_network(container_id)
@@ -2766,6 +2847,19 @@ def run_networked_container(cgroup_name, chroot_dir, command=None, memory_limit=
         #   - Clean up network resources
         pass
 
+"""
+<details>
+<summary>Hints</summary>
+- Set up DNS by creating /etc/resolv.conf in chroot with nameservers (8.8.8.8, 8.8.4.4, 1.1.1.1)
+- Call setup_bridge_network() to ensure bridge is ready
+- Generate unique container ID and IP suffix using hash(container_id) % 200 + 50
+- Call create_container_network() to set up networking
+- Build execution command: if netns exists, use ['ip', 'netns', 'exec', netns_name, 'unshare', ...] + command
+- Use subprocess.Popen() for real-time output streaming
+- Clean up network resources with cleanup_container_network() on completion
+</details>
+"""
+
 
 def test_networked_container():
     """Test networked container functionality"""
@@ -2919,6 +3013,11 @@ DANGEROUS_SYSCALLS = {
 The first line of defense is monitoring system calls that could indicate malicious behavior.
 We use strace to trace dangerous syscalls in real-time and alert when suspicious activity is detected.
 
+**⚠️ Security Note: Blacklists vs Whitelists**
+In security, relying on blacklists—where only known dangerous actions are blocked—can leave systems vulnerable to new or unlisted attack techniques. 
+A more robust approach is to use whitelists, which only allow explicitly approved actions and deny everything else by default. 
+While this exercise demonstrates blacklist-based syscall monitoring for educational purposes, real-world container security should favor whitelisting (such as with seccomp-bpf) to provide stronger and more future-proof protection against unknown threats.
+
 ### Exercise - implement monitor_container_syscalls
 
 > **Difficulty**: 🔴🔴🔴🔴⚪  
@@ -3058,6 +3157,19 @@ def monitor_container_syscalls(container_command, alert_callback):
         print(f"⚠ Container monitoring error: {e}")
         return -1
 
+"""
+<details>
+<summary>Hints</summary>
+- Build strace command: ['strace', '-f', '-e', 'trace=' + ','.join(DANGEROUS_SYSCALLS), '-o', '/dev/stderr'] + container_command
+- Use subprocess.Popen() with stdout and stderr pipes for real-time monitoring
+- Create monitoring functions for both stdout and stderr using threading
+- In stderr monitor: check each line for dangerous syscalls using any(syscall in line for syscall in DANGEROUS_SYSCALLS)
+- Call alert_callback() when dangerous syscalls are detected
+- Use threading.Thread() with daemon=True to run monitoring in background
+- Wait for process completion with process.wait() and return exit code
+</details>
+"""
+
 
 def test_syscall_monitoring():
     """Test basic syscall monitoring"""
@@ -3130,6 +3242,7 @@ def security_alert_handler(syscall_line, pid):
                 pass
         except Exception as e:
             print(f"⚠ Could not terminate process {pid}: {e}")
+            return False
     
     elif 'setns' in syscall_line:
         print(f"🔥 CRITICAL: Namespace manipulation detected!")
@@ -3476,32 +3589,26 @@ def _list_images():
     """List images using Python glob instead of bash for loop"""
     btrfs_path = get_btrfs_path()
     images = []
-    try:
-        for img_path in glob.glob(f"{btrfs_path}/img_*"):
-            img_id = os.path.basename(img_path)
-            source_file = os.path.join(img_path, 'img.source')
-            if os.path.exists(source_file):
-                with open(source_file, 'r') as f:
-                    source = f.read().strip()
-                images.append({'id': img_id, 'source': source})
-    except Exception:
-        pass
+    for img_path in glob.glob(f"{btrfs_path}/img_*"):
+        img_id = os.path.basename(img_path)
+        source_file = os.path.join(img_path, 'img.source')
+        if os.path.exists(source_file):
+            with open(source_file, 'r') as f:
+                source = f.read().strip()
+            images.append({'id': img_id, 'source': source})
     return images
 
 def _list_containers():
     """List containers using Python glob instead of bash for loop"""
     btrfs_path = get_btrfs_path()
     containers = []
-    try:
-        for ps_path in glob.glob(f"{btrfs_path}/ps_*"):
-            ps_id = os.path.basename(ps_path)
-            cmd_file = os.path.join(ps_path, f'{ps_id}.cmd')
-            if os.path.exists(cmd_file):
-                with open(cmd_file, 'r') as f:
-                    command = f.read().strip()
-                containers.append({'id': ps_id, 'command': command})
-    except Exception:
-        pass
+    for ps_path in glob.glob(f"{btrfs_path}/ps_*"):
+        ps_id = os.path.basename(ps_path)
+        cmd_file = os.path.join(ps_path, f'{ps_id}.cmd')
+        if os.path.exists(cmd_file):
+            with open(cmd_file, 'r') as f:
+                command = f.read().strip()
+            containers.append({'id': ps_id, 'command': command})
     return containers
 
 def _format_table_output(headers, rows):
@@ -3796,6 +3903,7 @@ def test_commit():
                     print(f"Warning: Unexpected wget output: {log_content}")
             except Exception as e:
                 print(f"Warning: Could not read wget test logs: {e}")
+                exit(1) 
         
         # Clean up test container
         rm([wget_test_container])
@@ -3863,13 +3971,13 @@ def test_commit():
                     
             except Exception as e:
                 print(f"Warning: Could not read wget HTTP logs: {e}")
+                exit(1)
         
         # Clean up HTTP test container
         rm([wget_http_container])
     else:
         print("Warning: Could not find wget HTTP request container")
     return True
-
 
 test_commit()
 
