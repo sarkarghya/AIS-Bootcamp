@@ -65,9 +65,12 @@ Implement the Docker commit functionality to save container changes as new image
 > - Implement container state capture
 > - Create new image layers from container modifications
 
-## Lab Setup
+## SETUP
 
 ### Build and Run Container
+
+This setup creates a privileged container environment that allows you to experiment with low-level Linux containerization features like cgroups, namespaces, and network isolation. The exercises in this lab require direct access to system resources that are normally restricted in containers.
+
 ```bash
 # Build Docker image from current directory
 docker build --network=host . -t mydocker
@@ -82,25 +85,36 @@ docker run --network host --privileged --cgroupns=host -it -v /var/run/docker.so
 ```
 
 ### Inside Container
+
+Once inside the privileged container, activate the Python environment and run the exercises:
+
 ```bash
-# Activate Python virtual environment
+# Activate Python virtual environment (required for dependencies)
 . /venv/bin/activate
 
-# Run Python file
+# Run the main containerization exercises
 python3 w2d2_solution.py
 ```
 
 ### Cleanup Docker Environment
+
+After COMPLETING the exercises, clean up to prevent resource conflicts:
+
 ```bash
-# Stop all running containers
+# Stop all running containers (including any test containers created during exercises)
 docker stop $(docker ps -aq)
 
-# Remove all containers
+# Remove all containers (cleans up test containers from networking exercises)
 docker rm $(docker ps -aq)
 
 # Remove all unused containers, networks, images and volumes
+# This cleans up extracted images from Exercise 1 and test networks from Exercise 5
 docker system prune --all --volumes
 ```
+
+### Security Note
+
+⚠️ **WARNING**: This setup runs containers with elevated privileges that bypass normal security restrictions. This is necessary for learning container internals but should NEVER be used in production environments. 
 
 ## Understanding Containerization
 
@@ -194,6 +208,15 @@ TARGET_ARCH, TARGET_VARIANT = {
 }.get(platform.machine().lower(), ('amd64', None))
 
 print(f"Detected architecture: {TARGET_ARCH} {TARGET_VARIANT if TARGET_VARIANT else ''}")
+
+# Safety checks
+if not all(d in os.listdir('..') for d in ['bin', 'etc', 'lib64', 'proc', 'sbin', 'usr', 'home', 'media', 'root', 'srv', 'var', 'boot', 'lib', 'mnt', 'run', 'sys', 'dev', 'opt', 'tmp', 'venv']):
+    print("❌ ERROR: Not in Docker container or Docker container is not properly set up! Run inside provided container.")
+    sys.exit(1)
+if sys.prefix == sys.base_prefix:
+    print("❌ ERROR: Not in virtual environment! Run: . /venv/bin/activate")
+    sys.exit(1)
+print("✅ Environment checks passed")
 
 # %%
 """
@@ -647,7 +670,7 @@ def test_get_target_manifest(get_target_manifest, get_auth_token):
         print("✓ AMD64 manifest discovery works")
     except Exception as e:
         print(f"AMD64 test failed: {e}")
-        exit(1)
+        sys.exit(1)
     
     # Test 2: Find arm64 manifest
     try:
@@ -666,7 +689,7 @@ def test_get_target_manifest(get_target_manifest, get_auth_token):
         print("✓ Invalid architecture handling works")
     except Exception as e:
         print(f"Unexpected error: {e}")
-        exit(1)
+        sys.exit(1)
     
     print("✓ Manifest discovery tests passed!\n" + "=" * 60)
 
@@ -814,7 +837,7 @@ def test_get_manifest_layers(get_manifest_layers, get_auth_token, get_target_man
         
     except Exception as e:
         print(f"Manifest processing test failed: {e}")
-        exit(1)
+        sys.exit(1)
     
     print("✓ Manifest processing tests passed!\n" + "=" * 60)
 
@@ -958,7 +981,7 @@ def test_download_and_extract_layers(download_and_extract_layers, get_auth_token
         
     except Exception as e:
         print(f"Layer download test failed: {e}")
-        exit(1)
+        sys.exit(1)
     
     print("✓ Layer download and extraction tests passed!\n" + "=" * 60)
 
@@ -1067,7 +1090,7 @@ def test_pull_layers_complete(pull_layers):
             
         except Exception as e:
             print(f"Failed to extract {image_ref}: {e}")
-            exit(1)
+            sys.exit(1)
     print("✓ Complete pull_layers tests passed!\n" + "=" * 60)
 
 test_pull_layers_complete(pull_layers)
@@ -1299,7 +1322,7 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
             print("Enabled cgroup controllers")
         except Exception as e:
             print(f"Warning: Could not enable controllers: {e}")
-            exit(1)
+            sys.exit(1)
         
         # Set memory limit if specified
         if memory_limit:
@@ -1310,7 +1333,7 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
                 print(f"Set memory limit to {memory_limit}")
             except Exception as e:
                 print(f"Error setting memory limit: {e}")
-                exit(1)
+                sys.exit(1)
         return cgroup_path
     else:
         # TODO: Implement basic cgroup creation
@@ -1398,7 +1421,7 @@ def add_process_to_cgroup(cgroup_name, pid=None):
             return True
         except Exception as e:
             print(f"Error adding process to cgroup: {e}")
-            exit(1)
+            sys.exit(1)
     else:
         # TODO: Implement process assignment to cgroup
         # 1. Use current process PID if none specified
@@ -1488,7 +1511,7 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
             return result
         except Exception as e:
             print(f"Error running command: {e}")
-            exit(1)
+            sys.exit(1)
     else:
         # TODO: Implement combined cgroup-chroot execution
         # 1. Create cgroup with memory limit
@@ -1563,7 +1586,7 @@ EOF
         return process.returncode
     except Exception as e:
         print(f"\n✗ Error: {e}")
-        exit(1)
+        sys.exit(1)
 
 def test_run_in_cgroup_chroot(run_in_cgroup_chroot):
     """Test the combined cgroup-chroot execution function."""
@@ -1803,7 +1826,7 @@ EOF
         return process.returncode
     except Exception as e:
         print(f"\n✗ Error: {e}")
-        exit(1)
+        sys.exit(1)
 
 
 def test_create_cgroup_comprehensive(test_memory_comprehensive):
@@ -1820,7 +1843,7 @@ def test_create_cgroup_comprehensive(test_memory_comprehensive):
             test_memory_comprehensive(cgroup_name="demo2", memory_limit="50M")
         except Exception as e:
             print(f"Child process error: {e}")
-            exit(1)
+            sys.exit(1)
         finally:
             # Child must exit explicitly to avoid continuing parent code
             os._exit(0)
@@ -1848,7 +1871,7 @@ def test_create_cgroup_comprehensive(test_memory_comprehensive):
             
         except Exception as e:
             print(f"Error waiting for child: {e}")
-            exit(1)
+            sys.exit(1)
     print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
 
 test_create_cgroup_comprehensive(test_memory_comprehensive)
@@ -2010,7 +2033,7 @@ def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memor
             
         except Exception as e:
             print(f"Error running command: {e}")
-            exit(1)
+            sys.exit(1)
     else:
         # TODO: Implement namespace isolation following these steps:
         
@@ -2071,7 +2094,7 @@ def test_namespace_isolation():
             print(f"  {cmd}: {result.stdout.strip()}")
         except Exception as e:
             print(f"  {cmd}: Error - {e}")
-            exit(1)
+            sys.exit(1)
     
     print("\n2. Namespaced container info:")
     # Create separate commands that won't fail if one fails
@@ -2101,7 +2124,7 @@ def test_namespace_isolation():
         print(f"  Host hostname: {result.stdout.strip()}")
     except Exception as e:
         print(f"  Could not check host hostname: {e}")
-        exit(1)
+        sys.exit(1)
     
     print("\n=== Namespace isolation test complete ===")
     return True
@@ -2323,11 +2346,11 @@ def test_bridge_interface():
                 print("⚠ Bridge connectivity test FAILED (may be normal)")
         except Exception as e:
             print(f"⚠ Could not test bridge connectivity: {e}")
-            exit(1)
+            sys.exit(1)
     else:
         print("✗ Bridge interface creation failed")
         print("CRITICAL: Bridge setup is required for container networking")
-        exit(1)
+        sys.exit(1)
     
     print("=" * 60)
     return result
@@ -3876,7 +3899,7 @@ def test_commit():
                     print(f"Warning: Unexpected wget output: {log_content}")
             except Exception as e:
                 print(f"Warning: Could not read wget test logs: {e}")
-                exit(1) 
+                sys.exit(1) 
         
         # Clean up test container
         rm([wget_test_container])
@@ -3944,7 +3967,7 @@ def test_commit():
                     
             except Exception as e:
                 print(f"Warning: Could not read wget HTTP logs: {e}")
-                exit(1)
+                sys.exit(1)
         
         # Clean up HTTP test container
         rm([wget_http_container])
