@@ -2264,7 +2264,8 @@ def create_bridge_interface():
     # Check if running as root
     if os.geteuid() != 0:
         print("⚠ Warning: Bridge interface creation requires root privileges")
-        return False
+        print("Critical failure - bridge interface creation requires root privileges")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     if "SOLUTION":
         try:
@@ -2298,12 +2299,10 @@ def create_bridge_interface():
             
             return True
             
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Error creating bridge interface: {e}")
-            return False
         except Exception as e:
             print(f"✗ Unexpected error: {e}")
-            return False
+            print("Critical failure - unexpected error in bridge interface creation")
+            sys.exit(1)  # Exit the Python process on critical failure
     else:
         # TODO: Implement bridge interface creation
         #   - Check if bridge0 already exists
@@ -2384,7 +2383,8 @@ def setup_nat_forwarding():
     # Check if running as root
     if os.geteuid() != 0:
         print("⚠ Warning: NAT setup requires root privileges")
-        return False
+        print("Critical failure - NAT setup requires root privileges")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     if "SOLUTION":
         try:
@@ -2428,7 +2428,8 @@ def setup_nat_forwarding():
             
         except Exception as e:
             print(f"✗ Unexpected error: {e}")
-            return False
+            print("Critical failure - NAT setup failed")
+            sys.exit(1)  # Exit the Python process on critical failure
     else:
         # TODO: Implement NAT and forwarding setup
         #   - Enable IP forwarding with sysctl
@@ -2499,6 +2500,8 @@ def test_bridge_network():
         print("✓ Complete bridge network setup successful!")
     else:
         print("✗ Complete bridge network setup failed")
+        print("Critical bridge network failure - exiting Python process")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     print("=" * 60)
     return result
@@ -2538,7 +2541,8 @@ def create_container_network(container_id, ip_suffix):
     
     if os.geteuid() != 0:
         print("⚠ Warning: Network setup requires root privileges")
-        return False
+        print("Critical failure - network setup requires root privileges")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     
     try:
@@ -2661,7 +2665,8 @@ def create_container_network(container_id, ip_suffix):
         
     except Exception as e:
         print(f"✗ Unexpected error: {e}")
-        return None
+        print("Critical failure - container network creation failed")
+        sys.exit(1)  # Exit the Python process on critical failure
 
 """
 <details>
@@ -2749,6 +2754,8 @@ def test_container_network():
         cleanup_container_network(container_id)
     else:
         print("✗ Container network creation failed")
+        print("Critical network setup failure - exiting Python process")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     print("=" * 60)
     return netns_name is not None
@@ -2933,6 +2940,8 @@ def test_networked_container():
         print("✓ Networked container test successful!")
     else:
         print("✗ Networked container test failed")
+        print("Critical network connectivity failure - exiting Python process")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     print("=" * 60)
     return result == 0
@@ -3261,7 +3270,8 @@ def security_alert_handler(syscall_line, pid):
                 pass
         except Exception as e:
             print(f"⚠ Could not terminate process {pid}: {e}")
-            return False
+            print("Critical failure - could not terminate malicious process")
+            sys.exit(1)  # Exit the Python process on critical failure
     
     elif 'setns' in syscall_line:
         print(f"🔥 CRITICAL: Namespace manipulation detected!")
@@ -3409,6 +3419,8 @@ def test_monitored_container_safe():
         print("✓ Safe monitored container test successful!")
     else:
         print("✗ Safe monitored container test failed")
+        print("Critical monitored container failure - exiting Python process")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     print("=" * 60)
     return exit_code == 0
@@ -3834,7 +3846,8 @@ def test_commit():
     setup_returncode = setup_docker_environment()
     if setup_returncode != 0:
         print("FAIL: Environment setup failed")
-        return False
+        print("Critical failure - Docker environment setup failed")
+        sys.exit(1)  # Exit the Python process on critical failure
     print("Environment setup completed successfully!")
     print("-" * 40)
     
@@ -3842,19 +3855,22 @@ def test_commit():
     returncode = commit([])
     if returncode != 1:  # Should fail with usage message
         print(f"FAIL: Commit should fail with no arguments")
-        return False
+        print("Critical failure - commit argument validation failed")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     # Test with single argument
     returncode = commit(['container_id'])
     if returncode != 1:  # Should fail with usage message
         print(f"FAIL: Commit should fail with single argument")
-        return False
+        print("Critical failure - commit single argument validation failed")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     # Test with invalid container
     returncode = commit(['nonexistent_container', 'nonexistent_image'])
     if returncode == 0:
         print("FAIL: Commit should fail with nonexistent container")
-        return False
+        print("Critical failure - commit should fail with nonexistent container")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     # Create test image for commit testing
     base_image_dir = os.path.expanduser('~/base-image')
@@ -3866,7 +3882,8 @@ def test_commit():
     img_id, returncode = init([base_image_dir])
     if returncode != 0 or not img_id:
         print("FAIL: Could not create test image for commit")
-        return False
+        print("Critical failure - exiting Python process")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     print(f"Using created image: {img_id}")
     time.sleep(1)
@@ -3919,7 +3936,8 @@ def test_commit():
     
     if not yum_container:
         print("FAIL: Could not find yum install container")
-        return False
+        print("Critical failure - exiting Python process")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     print(f"Yum install container: {yum_container}")
     
@@ -3928,7 +3946,8 @@ def test_commit():
     commit_returncode = commit([yum_container, img_id])
     if commit_returncode != 0:
         print(f"FAIL: Commit failed with return code {commit_returncode}")
-        return False
+        print("Critical commit failure - exiting Python process")
+        sys.exit(1)  # Exit the Python process on critical failure
     
     print(f"Successfully committed changes to image {img_id}")
     
