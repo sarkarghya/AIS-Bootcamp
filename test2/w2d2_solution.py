@@ -1581,7 +1581,7 @@ Implement comprehensive memory management including swap control, which is essen
 for memory limits to function properly in containerized environments.
 """
 
-def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=None):
+def create_cgroup_comprehensive_part1(cgroup_name, memory_limit, cpu_limit):
     """
     Create a cgroup with comprehensive settings - Part 1: Basic setup
     
@@ -1591,7 +1591,7 @@ def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=
         cpu_limit: CPU limit (not implemented yet)
     """
     if "SOLUTION":
-        cgroup_path = create_cgroup(cgroup_name=cgroup_name, memory_limit=None, cpu_limit=None)
+        cgroup_path = create_cgroup(cgroup_name, memory_limit, cpu_limit)
         
         # Disable swap for this cgroup (CRITICAL for memory limits to work properly)
         try:
@@ -1688,6 +1688,9 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         else:
             print(f"⚠ Warning: Could not add process to cgroup")
         
+        # Set oom_score_adj to make this process more likely to be killed
+        with open("/proc/self/oom_score_adj", "w") as f:
+            f.write("1000")
 
         print("✓ Set OOM score adjustment to 1000 (highest priority for killing)")
         
@@ -1734,10 +1737,6 @@ for i in range(200):  # Allocate up to 2GB if not killed
     
     # Add a small delay to make killing more predictable
     time.sleep(0.5)
-
-# Set oom_score_adj to make this process more likely to be killed
-with open(f"/proc/{os.getpid()}/oom_score_adj", "w") as f:
-    f.write("1000")
 
 print('Test completed - this should not be reached if limits work!')
 "
