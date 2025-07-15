@@ -1581,7 +1581,7 @@ Implement comprehensive memory management including swap control, which is essen
 for memory limits to function properly in containerized environments.
 """
 
-def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=None):
+def create_cgroup_comprehensive_part1(cgroup_name, memory, cpu):
     """
     Create a cgroup with comprehensive settings - Part 1: Basic setup
     
@@ -1591,7 +1591,7 @@ def create_cgroup_comprehensive_part1(cgroup_name, memory_limit=None, cpu_limit=
         cpu_limit: CPU limit (not implemented yet)
     """
     if "SOLUTION":
-        cgroup_path = create_cgroup(cgroup_name, memory_limit=memory_limit, cpu_limit=cpu_limit)
+        cgroup_path = create_cgroup(cgroup_name, memory_limit=memory, cpu_limit=cpu)
         
         # Disable swap for this cgroup (CRITICAL for memory limits to work properly)
         try:
@@ -1616,7 +1616,7 @@ def test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1):
     print("Testing comprehensive cgroup creation - Part 1...")
     
     # Test comprehensive cgroup with memory limit
-    cgroup_path = create_cgroup_comprehensive_part1("test_comprehensive_p1", memory_limit="100M")
+    cgroup_path = create_cgroup_comprehensive_part1("test_comprehensive_p1", "100M")
     if cgroup_path:
         assert os.path.exists(cgroup_path), "Cgroup directory should exist"
         
