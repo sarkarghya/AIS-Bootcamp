@@ -1688,9 +1688,7 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         else:
             print(f"⚠ Warning: Could not add process to cgroup")
         
-        # Set oom_score_adj to make this process more likely to be killed
-        with open("/proc/self/oom_score_adj", "w") as f:
-            f.write("1000")
+
         print("✓ Set OOM score adjustment to 1000 (highest priority for killing)")
         
         print(f"✓ Part 2 - Advanced OOM and process management complete")
@@ -1727,7 +1725,8 @@ import os
 import time
 
 print('Starting memory allocation test...')
-print('Process PID:', os.getpid())
+the_pid = os.getpid()
+print('Process PID:', the_pid)
 
 data = []
 for i in range(200):  # Allocate up to 2GB if not killed
@@ -1736,6 +1735,10 @@ for i in range(200):  # Allocate up to 2GB if not killed
     
     # Add a small delay to make killing more predictable
     time.sleep(0.5)
+
+# Set oom_score_adj to make this process more likely to be killed
+with open(f"/proc/{the_pid}/oom_score_adj", "w") as f:
+    f.write("1000")
 
 print('Test completed - this should not be reached if limits work!')
 "
