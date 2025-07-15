@@ -210,7 +210,7 @@ TARGET_ARCH, TARGET_VARIANT = {
 print(f"Detected architecture: {TARGET_ARCH} {TARGET_VARIANT if TARGET_VARIANT else ''}")
 
 # Safety checks
-if not all(d in os.listdir('..') for d in ['bin', 'etc', 'lib64', 'proc', 'sbin', 'usr', 'home', 'media', 'root', 'srv', 'var', 'boot', 'lib', 'mnt', 'run', 'sys', 'dev', 'opt', 'tmp', 'venv']):
+if not all(d in os.listdir('..') for d in ['bin', 'etc', 'proc', 'sbin', 'usr', 'home', 'media', 'root', 'srv', 'var', 'boot', 'lib', 'mnt', 'run', 'sys', 'dev', 'opt', 'tmp', 'venv']):
     print("❌ ERROR: Not in Docker container or Docker container is not properly set up! Run inside provided container.")
     sys.exit(1)
 if sys.prefix == sys.base_prefix:
@@ -664,22 +664,14 @@ def test_get_target_manifest(get_target_manifest, get_auth_token):
     headers = get_auth_token(registry, image)
     
     # Test 1: Find amd64 manifest
-    try:
-        digest = get_target_manifest(registry, image, tag, headers, "amd64")
-        assert digest.startswith("sha256:"), f"Digest should start with sha256:, got {digest}"
-        print("✓ AMD64 manifest discovery works")
-    except Exception as e:
-        print(f"AMD64 test failed: {e}")
-        sys.exit(1)
+    digest = get_target_manifest(registry, image, tag, headers, "amd64")
+    assert digest.startswith("sha256:"), f"Digest should start with sha256:, got {digest}"
+    print("✓ AMD64 manifest discovery works")
     
     # Test 2: Find arm64 manifest
-    try:
-        digest = get_target_manifest(registry, image, tag, headers, "arm64", "v8")
-        assert digest.startswith("sha256:"), f"Digest should start with sha256:, got {digest}"
-        print("✓ ARM64 manifest discovery works")
-    except Exception as e:
-        print(f"ARM64 test failed: {e}")
-        exit(1)
+    digest = get_target_manifest(registry, image, tag, headers, "arm64", "v8")
+    assert digest.startswith("sha256:"), f"Digest should start with sha256:, got {digest}"
+    print("✓ ARM64 manifest discovery works")
     
     # Test 3: Invalid architecture should raise ValueError
     try:
@@ -815,29 +807,26 @@ def test_get_manifest_layers(get_manifest_layers, get_auth_token, get_target_man
     tag = "latest"
     headers = get_auth_token(registry, image)
     
-    try:
-        # Get manifest digest
-        manifest_digest = get_target_manifest(registry, image, tag, headers, "amd64")
+    
+    # Get manifest digest
+    manifest_digest = get_target_manifest(registry, image, tag, headers, "amd64")
+    
+    # Get layers
+    layers = get_manifest_layers(registry, image, manifest_digest, headers)
+    
+    assert isinstance(layers, list), "Layers should be a list"
+    assert len(layers) > 0, "Should have at least one layer"
+    
+    # Check layer structure
+    for layer in layers:
+        assert 'digest' in layer, "Layer should have digest"
+        assert 'size' in layer, "Layer should have size"
+        assert layer['digest'].startswith('sha256:'), "Digest should start with sha256:"
+        assert isinstance(layer['size'], int), "Size should be integer"
+    
+    print(f"✓ Found {len(layers)} layers")
+    print("✓ Manifest processing works")
         
-        # Get layers
-        layers = get_manifest_layers(registry, image, manifest_digest, headers)
-        
-        assert isinstance(layers, list), "Layers should be a list"
-        assert len(layers) > 0, "Should have at least one layer"
-        
-        # Check layer structure
-        for layer in layers:
-            assert 'digest' in layer, "Layer should have digest"
-            assert 'size' in layer, "Layer should have size"
-            assert layer['digest'].startswith('sha256:'), "Digest should start with sha256:"
-            assert isinstance(layer['size'], int), "Size should be integer"
-        
-        print(f"✓ Found {len(layers)} layers")
-        print("✓ Manifest processing works")
-        
-    except Exception as e:
-        print(f"Manifest processing test failed: {e}")
-        sys.exit(1)
     
     print("✓ Manifest processing tests passed!\n" + "=" * 60)
 
@@ -954,34 +943,30 @@ def test_download_and_extract_layers(download_and_extract_layers, get_auth_token
     tag = "latest"
     output_dir = "./test_extracted"
     
-    try:
-        # Get authentication
-        headers = get_auth_token(registry, image)
+    # Get authentication
+    headers = get_auth_token(registry, image)
+    
+    # Get manifest
+    manifest_digest = get_target_manifest(registry, image, tag, headers, TARGET_ARCH, TARGET_VARIANT)
+    
+    # Get layers
+    layers = get_manifest_layers(registry, image, manifest_digest, headers)
+    
+    # Download and extract
+    download_and_extract_layers(registry, image, layers, headers, output_dir)
+    
+    # Verify extraction
+    assert os.path.exists(output_dir), "Output directory should exist"
+    extracted_files = os.listdir(output_dir)
+    assert len(extracted_files) > 0, "Should have extracted some files"
+    
+    print(f"✓ Successfully extracted to {output_dir}")
+    print(f"✓ Found {len(extracted_files)} items in output directory")
+    
+    # Cleanup
+    import shutil
+    shutil.rmtree(output_dir, ignore_errors=True)
         
-        # Get manifest
-        manifest_digest = get_target_manifest(registry, image, tag, headers, TARGET_ARCH, TARGET_VARIANT)
-        
-        # Get layers
-        layers = get_manifest_layers(registry, image, manifest_digest, headers)
-        
-        # Download and extract
-        download_and_extract_layers(registry, image, layers, headers, output_dir)
-        
-        # Verify extraction
-        assert os.path.exists(output_dir), "Output directory should exist"
-        extracted_files = os.listdir(output_dir)
-        assert len(extracted_files) > 0, "Should have extracted some files"
-        
-        print(f"✓ Successfully extracted to {output_dir}")
-        print(f"✓ Found {len(extracted_files)} items in output directory")
-        
-        # Cleanup
-        import shutil
-        shutil.rmtree(output_dir, ignore_errors=True)
-        
-    except Exception as e:
-        print(f"Layer download test failed: {e}")
-        sys.exit(1)
     
     print("✓ Layer download and extraction tests passed!\n" + "=" * 60)
 
@@ -1073,24 +1058,20 @@ def test_pull_layers_complete(pull_layers):
     ]
     
     for image_ref, output_dir in test_cases:
-        try:
-            print(f"\nTesting {image_ref}...")
-            pull_layers(image_ref, output_dir)
+        print(f"\nTesting {image_ref}...")
+        pull_layers(image_ref, output_dir)
+        
+        # Verify extraction
+        assert os.path.exists(output_dir), f"Output directory {output_dir} should exist"
+        extracted_files = os.listdir(output_dir)
+        assert len(extracted_files) > 0, f"Should have extracted files to {output_dir}"
+        
+        print(f"✓ Successfully extracted {image_ref}")
+        
+        # Cleanup
+        import shutil
+        shutil.rmtree(output_dir, ignore_errors=True)
             
-            # Verify extraction
-            assert os.path.exists(output_dir), f"Output directory {output_dir} should exist"
-            extracted_files = os.listdir(output_dir)
-            assert len(extracted_files) > 0, f"Should have extracted files to {output_dir}"
-            
-            print(f"✓ Successfully extracted {image_ref}")
-            
-            # Cleanup
-            import shutil
-            shutil.rmtree(output_dir, ignore_errors=True)
-            
-        except Exception as e:
-            print(f"Failed to extract {image_ref}: {e}")
-            sys.exit(1)
     print("✓ Complete pull_layers tests passed!\n" + "=" * 60)
 
 test_pull_layers_complete(pull_layers)
@@ -1174,18 +1155,14 @@ def run_chroot(chroot_dir: str, command: Optional[Union[str, List[str]]] = None)
         
         print(f"Running chroot {chroot_dir} with command: {' '.join(command)}")
         
-        try:
-            result = subprocess.run(['chroot', chroot_dir] + command, 
-                                  capture_output=True, text=True, timeout=30)
-            print(f"Exit code: {result.returncode}")
-            if result.stdout:
-                print(f"stdout:\n{result.stdout}")
-            if result.stderr:
-                print(f"stderr:\n{result.stderr}")
-            return result
-        except Exception as e:
-            print(f"Error running chroot: {e}")
-            return None
+        result = subprocess.run(['chroot', chroot_dir] + command, 
+                                capture_output=True, text=True, timeout=30)
+        print(f"Exit code: {result.returncode}")
+        if result.stdout:
+            print(f"stdout:\n{result.stdout}")
+        if result.stderr:
+            print(f"stderr:\n{result.stderr}")
+        return result
     else:
         # TODO: Implement chroot command execution
         # 1. Handle different command formats (None, string, list)
@@ -1316,24 +1293,16 @@ def create_cgroup(cgroup_name, memory_limit=None, cpu_limit=None):
         print(f"Created cgroup directory: {cgroup_path}")
         
         # Enable controllers in parent cgroup
-        try:
-            with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
-                f.write("+cpu +memory +pids")
-            print("Enabled cgroup controllers")
-        except Exception as e:
-            print(f"Warning: Could not enable controllers: {e}")
-            sys.exit(1)
+        with open("/sys/fs/cgroup/cgroup.subtree_control", "w") as f:
+            f.write("+cpu +memory +pids")
+        print("Enabled cgroup controllers")
         
         # Set memory limit if specified
         if memory_limit:
             memory_max_path = f"{cgroup_path}/memory.max"
-            try:
-                with open(memory_max_path, "w") as f:
-                    f.write(str(memory_limit))
-                print(f"Set memory limit to {memory_limit}")
-            except Exception as e:
-                print(f"Error setting memory limit: {e}")
-                sys.exit(1)
+            with open(memory_max_path, "w") as f:
+                f.write(str(memory_limit))
+            print(f"Set memory limit to {memory_limit}")
         return cgroup_path
     else:
         # TODO: Implement basic cgroup creation
@@ -1414,14 +1383,10 @@ def add_process_to_cgroup(cgroup_name, pid=None):
         
         cgroup_procs_path = f"/sys/fs/cgroup/{cgroup_name}/cgroup.procs"
         
-        try:
-            with open(cgroup_procs_path, "w") as f:
-                f.write(str(pid))
-            print(f"Added process {pid} to cgroup {cgroup_name}")
-            return True
-        except Exception as e:
-            print(f"Error adding process to cgroup: {e}")
-            sys.exit(1)
+        with open(cgroup_procs_path, "w") as f:
+            f.write(str(pid))
+        print(f"Added process {pid} to cgroup {cgroup_name}")
+        return True
     else:
         # TODO: Implement process assignment to cgroup
         # 1. Use current process PID if none specified
@@ -1505,13 +1470,9 @@ def run_in_cgroup_chroot(cgroup_name, chroot_dir, command=None, memory_limit="10
         chroot {chroot_dir} {' '.join(command)}
         """
         
-        try:
-            # Run without capturing output so we see it in real-time
-            result = subprocess.run(['sh', '-c', script], timeout=60)
-            return result
-        except Exception as e:
-            print(f"Error running command: {e}")
-            sys.exit(1)
+        # Run without capturing output so we see it in real-time
+        result = subprocess.run(['sh', '-c', script], timeout=60)
+        return result
     else:
         # TODO: Implement combined cgroup-chroot execution
         # 1. Create cgroup with memory limit
@@ -1558,35 +1519,31 @@ print('Test completed - this should not be reached if limits work!')
 EOF
     """
         
-    try:
-        # Use Popen to get real-time output and better control
-        process = subprocess.Popen(['sh', '-c', script], 
-                                 stdout=subprocess.PIPE, 
-                                 stderr=subprocess.STDOUT,
-                                 universal_newlines=True)
-        
-        # Stream output in real-time
-        if process.stdout:
-            for line in iter(process.stdout.readline, ''):
-                print(line.strip())
-        
-        process.wait(timeout=60)
-        
-        # Check how the process ended
-        if process.returncode == 0:
-            print("\n⚠ Process completed normally - memory limit may not be working")
-        elif process.returncode == -signal.SIGKILL or process.returncode == 137:
-            print("\n✓ Process was KILLED (likely by OOM killer) - memory limit working!")
-            print("   Return code 137 = 128 + 9 (SIGKILL)")
-        elif process.returncode < 0:
-            print(f"\n✓ Process was killed by signal {-process.returncode}")
-        else:
-            print(f"\n? Process exited with code {process.returncode}")
-        
-        return process.returncode
-    except Exception as e:
-        print(f"\n✗ Error: {e}")
-        sys.exit(1)
+    # Use Popen to get real-time output and better control
+    process = subprocess.Popen(['sh', '-c', script], 
+                                stdout=subprocess.PIPE, 
+                                stderr=subprocess.STDOUT,
+                                universal_newlines=True)
+    
+    # Stream output in real-time
+    if process.stdout:
+        for line in iter(process.stdout.readline, ''):
+            print(line.strip())
+    
+    process.wait(timeout=60)
+    
+    # Check how the process ended
+    if process.returncode == 0:
+        print("\n⚠ Process completed normally - memory limit may not be working")
+    elif process.returncode == -signal.SIGKILL or process.returncode == 137:
+        print("\n✓ Process was KILLED (likely by OOM killer) - memory limit working!")
+        print("   Return code 137 = 128 + 9 (SIGKILL)")
+    elif process.returncode < 0:
+        print(f"\n✓ Process was killed by signal {-process.returncode}")
+    else:
+        print(f"\n? Process exited with code {process.returncode}")
+    
+    return process.returncode
 
 def test_run_in_cgroup_chroot(run_in_cgroup_chroot):
     """Test the combined cgroup-chroot execution function."""
@@ -1720,29 +1677,21 @@ def create_cgroup_comprehensive(cgroup_name, memory_limit=None, cpu_limit=None):
         print(f"✓ Part 1 complete, continuing with Part 2 - Advanced OOM and Process Management")
         
         # Set OOM killer to be more aggressive for this cgroup
-        try:
-            oom_group_path = f"{cgroup_path}/memory.oom.group"
-            with open(oom_group_path, "w") as f:
-                f.write("1")
-            print("✓ Enabled OOM group killing (kills entire process group on OOM)")
-        except Exception as e:
-            print(f"Warning: Could not set OOM group: {e}")
+        oom_group_path = f"{cgroup_path}/memory.oom.group"
+        with open(oom_group_path, "w") as f:
+            f.write("1")
+        print("✓ Enabled OOM group killing (kills entire process group on OOM)")
         
         # Add current process to cgroup and set up OOM score adjustment
-        try:
-            # Add process to cgroup using the existing function
-            if add_process_to_cgroup(cgroup_name):
-                print(f"✓ Added current process to cgroup")
-            else:
-                print(f"⚠ Warning: Could not add process to cgroup")
-            
-            # Set oom_score_adj to make this process more likely to be killed
-            with open("/proc/self/oom_score_adj", "w") as f:
-                f.write("1000")
-            print("✓ Set OOM score adjustment to 1000 (highest priority for killing)")
-            
-        except Exception as e:
-            print(f"Warning: Could not configure process OOM settings: {e}")
+        if add_process_to_cgroup(cgroup_name):
+            print(f"✓ Added current process to cgroup")
+        else:
+            print(f"⚠ Warning: Could not add process to cgroup")
+        
+        # Set oom_score_adj to make this process more likely to be killed
+        with open("/proc/self/oom_score_adj", "w") as f:
+            f.write("1000")
+        print("✓ Set OOM score adjustment to 1000 (highest priority for killing)")
         
         print(f"✓ Part 2 - Advanced OOM and process management complete")
         print(f"✓ Full comprehensive cgroup setup finished for: {cgroup_name}")
@@ -1793,40 +1742,36 @@ print('Test completed - this should not be reached if limits work!')
 EOF
     """
     
-    try:
-        # Use Popen to get real-time output
-        process = subprocess.Popen(['sh', '-c', script], 
-                                 stdout=subprocess.PIPE, 
-                                 stderr=subprocess.STDOUT,
-                                 universal_newlines=True)
-        
-        # Stream output in real-time
-        print("Streaming output...")
-        if process.stdout:
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
-                    break
-                if output:
-                    print(output.strip())
-        
-        process.wait(timeout=60)
-        
-        # Check how the process ended
-        if process.returncode == 0:
-            print("\n⚠ Process completed normally - cgroup memory limit NOT working")
-        elif process.returncode == -signal.SIGKILL or process.returncode == 137:
-            print("\n✓ Process was KILLED - cgroup memory limit working!")
-            print("   Return code 137 = 128 + 9 (SIGKILL)")
-        elif process.returncode < 0:
-            print(f"\n✓ Process was killed by signal {-process.returncode}")
-        else:
-            print(f"\n? Process exited with code {process.returncode}")
-        
-        return process.returncode
-    except Exception as e:
-        print(f"\n✗ Error: {e}")
-        sys.exit(1)
+    # Use Popen to get real-time output
+    process = subprocess.Popen(['sh', '-c', script], 
+                                stdout=subprocess.PIPE, 
+                                stderr=subprocess.STDOUT,
+                                universal_newlines=True)
+    
+    # Stream output in real-time
+    print("Streaming output...")
+    if process.stdout:
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                print(output.strip())
+    
+    process.wait(timeout=60)
+    
+    # Check how the process ended
+    if process.returncode == 0:
+        print("\n⚠ Process completed normally - cgroup memory limit NOT working")
+    elif process.returncode == -signal.SIGKILL or process.returncode == 137:
+        print("\n✓ Process was KILLED - cgroup memory limit working!")
+        print("   Return code 137 = 128 + 9 (SIGKILL)")
+    elif process.returncode < 0:
+        print(f"\n✓ Process was killed by signal {-process.returncode}")
+    else:
+        print(f"\n? Process exited with code {process.returncode}")
+    
+    return process.returncode
 
 
 def test_create_cgroup_comprehensive(test_memory_comprehensive):
@@ -1852,26 +1797,22 @@ def test_create_cgroup_comprehensive(test_memory_comprehensive):
         # Parent process - wait for child and report results
         print(f"✓ Forked child process with PID: {pid}")
         
-        try:
-            # Wait for child process to complete
-            _, status = os.waitpid(pid, 0)
-            
-            # Check how the child process ended
-            if os.WIFEXITED(status):
-                exit_code = os.WEXITSTATUS(status)
-                print(f"Child exited with code: {exit_code}")
-            elif os.WIFSIGNALED(status):
-                signal_num = os.WTERMSIG(status)
-                if signal_num == 9:  # SIGKILL
-                    print("✓ Child was KILLED by OOM - cgroup memory limit working!")
-                else:
-                    print(f"✓ Child was killed by signal {signal_num}")
-            
-            print("✓ Parent process continues running!")
-            
-        except Exception as e:
-            print(f"Error waiting for child: {e}")
-            sys.exit(1)
+        # Wait for child process to complete
+        _, status = os.waitpid(pid, 0)
+        
+        # Check how the child process ended
+        if os.WIFEXITED(status):
+            exit_code = os.WEXITSTATUS(status)
+            print(f"Child exited with code: {exit_code}")
+        elif os.WIFSIGNALED(status):
+            signal_num = os.WTERMSIG(status)
+            if signal_num == 9:  # SIGKILL
+                print("✓ Child was KILLED by OOM - cgroup memory limit working!")
+            else:
+                print(f"✓ Child was killed by signal {signal_num}")
+        
+        print("✓ Parent process continues running!")
+        
     print("✓ Complete comprehensive cgroup creation tests completed!\n" + "=" * 60)
 
 test_create_cgroup_comprehensive(test_memory_comprehensive)
@@ -1977,63 +1918,60 @@ def run_in_cgroup_chroot_namespaced(cgroup_name, chroot_dir, command=None, memor
     print(f"Running `{command}` in cgroup {cgroup_name} with chroot {chroot_dir} and namespaces")
     
     if "SOLUTION":
-        try:
-            # Step 1: Fork to create child process
-            pid = os.fork()
+        
+        # Step 1: Fork to create child process
+        pid = os.fork()
+        
+        if pid == 0:
+            # CHILD PROCESS EXECUTION PATH
             
-            if pid == 0:
-                # CHILD PROCESS EXECUTION PATH
-                
-                # Step 2: Set up signal handler to receive SIGUSR1 from parent
-                def resume_handler(signum, frame):
-                    pass  # Just wake up from pause - no action needed
-                
-                signal.signal(signal.SIGUSR1, resume_handler)
-                print(f"Child process {os.getpid()} waiting for signal...")
-                
-                # Step 3: Wait for parent to add us to cgroup
-                signal.pause()  # Blocks until SIGUSR1 received
-                print(f"Child process {os.getpid()} resuming...")
-                
-                # Step 4: Execute with namespace isolation using unshare
-                # unshare creates new namespaces, then chroot isolates filesystem
-                # Execute command with namespace isolation
-                subprocess.run([
-                    'unshare',
-                    '--pid',    # Process ID namespace isolation
-                    '--mount',  # Mount namespace isolation  
-                    '--net',    # Network namespace isolation
-                    '--uts',    # Hostname namespace isolation
-                    '--ipc',    # IPC namespace isolation
-                    '--fork',   # Fork after creating namespaces
-                    'chroot', chroot_dir  # Change root directory
-                ] + command, check=True)
-                
+            # Step 2: Set up signal handler to receive SIGUSR1 from parent
+            def resume_handler(signum, frame):
+                pass  # Just wake up from pause - no action needed
+            
+            signal.signal(signal.SIGUSR1, resume_handler)
+            print(f"Child process {os.getpid()} waiting for signal...")
+            
+            # Step 3: Wait for parent to add us to cgroup
+            signal.pause()  # Blocks until SIGUSR1 received
+            print(f"Child process {os.getpid()} resuming...")
+            
+            # Step 4: Execute with namespace isolation using unshare
+            # unshare creates new namespaces, then chroot isolates filesystem
+            # Execute command with namespace isolation
+            subprocess.run([
+                'unshare',
+                '--pid',    # Process ID namespace isolation
+                '--mount',  # Mount namespace isolation  
+                '--net',    # Network namespace isolation
+                '--uts',    # Hostname namespace isolation
+                '--ipc',    # IPC namespace isolation
+                '--fork',   # Fork after creating namespaces
+                'chroot', chroot_dir  # Change root directory
+            ] + command, check=True)
+            
+        else:
+            # PARENT PROCESS EXECUTION PATH
+            
+            print(f"Started paused process {pid}, adding to cgroup {cgroup_name}")
+            
+            # Step 5: Add child process to cgroup for resource limits
+            if add_process_to_cgroup(cgroup_name, pid):
+                print(f"Added process {pid} to cgroup {cgroup_name}")
             else:
-                # PARENT PROCESS EXECUTION PATH
-                
-                print(f"Started paused process {pid}, adding to cgroup {cgroup_name}")
-                
-                # Step 5: Add child process to cgroup for resource limits
-                if add_process_to_cgroup(cgroup_name, pid):
-                    print(f"Added process {pid} to cgroup {cgroup_name}")
-                else:
-                    print(f"⚠ Warning: Could not add process {pid} to cgroup {cgroup_name}")
-                
-                # Step 6: Signal child to continue execution
-                os.kill(pid, signal.SIGUSR1)
-                print(f"Signaled process {pid} to continue")
-                
-                # Step 7: Wait for child process to complete
-                _, status = os.waitpid(pid, 0)
-                exit_code = os.WEXITSTATUS(status)
-                
-                print(f"Exit code: {exit_code}")
-                return exit_code
+                print(f"⚠ Warning: Could not add process {pid} to cgroup {cgroup_name}")
             
-        except Exception as e:
-            print(f"Error running command: {e}")
-            sys.exit(1)
+            # Step 6: Signal child to continue execution
+            os.kill(pid, signal.SIGUSR1)
+            print(f"Signaled process {pid} to continue")
+            
+            # Step 7: Wait for child process to complete
+            _, status = os.waitpid(pid, 0)
+            exit_code = os.WEXITSTATUS(status)
+            
+            print(f"Exit code: {exit_code}")
+            return exit_code
+            
     else:
         # TODO: Implement namespace isolation following these steps:
         
@@ -2089,12 +2027,8 @@ def test_namespace_isolation():
     
     print("\n1. Host system info:")
     for cmd in test_commands:
-        try:
-            result = subprocess.run(['sh', '-c', cmd], capture_output=True, text=True)
-            print(f"  {cmd}: {result.stdout.strip()}")
-        except Exception as e:
-            print(f"  {cmd}: Error - {e}")
-            sys.exit(1)
+        result = subprocess.run(['sh', '-c', cmd], capture_output=True, text=True)
+        print(f"  {cmd}: {result.stdout.strip()}")
     
     print("\n2. Namespaced container info:")
     # Create separate commands that won't fail if one fails
@@ -2119,12 +2053,8 @@ def test_namespace_isolation():
     )
     
     print("\n3. Verification - host hostname should be unchanged:")
-    try:
-        result = subprocess.run(['hostname'], capture_output=True, text=True)
-        print(f"  Host hostname: {result.stdout.strip()}")
-    except Exception as e:
-        print(f"  Could not check host hostname: {e}")
-        sys.exit(1)
+    result = subprocess.run(['hostname'], capture_output=True, text=True)
+    print(f"  Host hostname: {result.stdout.strip()}")
     
     print("\n=== Namespace isolation test complete ===")
     return True
@@ -2268,41 +2198,36 @@ def create_bridge_interface():
         sys.exit(1)  # Exit the Python process on critical failure
     
     if "SOLUTION":
-        try:
-            # Check if bridge already exists
-            bridge_check = subprocess.run(['ip', 'link', 'show', 'bridge0'], 
-                                        capture_output=True, text=True)
-            if bridge_check.returncode == 0:
-                print("✓ Bridge0 already exists, checking configuration...")
-                # Check if it has the right IP
-                ip_check = subprocess.run(['ip', 'addr', 'show', 'bridge0'], 
-                                        capture_output=True, text=True)
-                if '10.0.0.1/24' in ip_check.stdout:
-                    print("✓ Bridge0 already configured with correct IP")
-                    return True
-                else:
-                    print("⚠ Bridge0 exists but needs reconfiguration")
+        # Check if bridge already exists
+        bridge_check = subprocess.run(['ip', 'link', 'show', 'bridge0'], 
+                                    capture_output=True, text=True)
+        if bridge_check.returncode == 0:
+            print("✓ Bridge0 already exists, checking configuration...")
+            # Check if it has the right IP
+            ip_check = subprocess.run(['ip', 'addr', 'show', 'bridge0'], 
+                                    capture_output=True, text=True)
+            if '10.0.0.1/24' in ip_check.stdout:
+                print("✓ Bridge0 already configured with correct IP")
+                return True
+            else:
+                print("⚠ Bridge0 exists but needs reconfiguration")
+        
+        # Remove existing bridge if it exists
+        subprocess.run(['ip', 'link', 'del', 'bridge0'], 
+                        capture_output=True, text=True)
+        
+        # Create and configure bridge
+        subprocess.run(['ip', 'link', 'add', 'bridge0', 'type', 'bridge'], check=True)
+        print("✓ Created bridge0")
+        
+        subprocess.run(['ip', 'addr', 'add', '10.0.0.1/24', 'dev', 'bridge0'], check=True)
+        print("✓ Added IP 10.0.0.1/24 to bridge0")
+        
+        subprocess.run(['ip', 'link', 'set', 'bridge0', 'up'], check=True)
+        print("✓ Bridge0 is up")
+        
+        return True
             
-            # Remove existing bridge if it exists
-            subprocess.run(['ip', 'link', 'del', 'bridge0'], 
-                          capture_output=True, text=True)
-            
-            # Create and configure bridge
-            subprocess.run(['ip', 'link', 'add', 'bridge0', 'type', 'bridge'], check=True)
-            print("✓ Created bridge0")
-            
-            subprocess.run(['ip', 'addr', 'add', '10.0.0.1/24', 'dev', 'bridge0'], check=True)
-            print("✓ Added IP 10.0.0.1/24 to bridge0")
-            
-            subprocess.run(['ip', 'link', 'set', 'bridge0', 'up'], check=True)
-            print("✓ Bridge0 is up")
-            
-            return True
-            
-        except Exception as e:
-            print(f"✗ Unexpected error: {e}")
-            print("Critical failure - unexpected error in bridge interface creation")
-            sys.exit(1)  # Exit the Python process on critical failure
     else:
         # TODO: Implement bridge interface creation
         #   - Check if bridge0 already exists
@@ -2336,16 +2261,12 @@ def test_bridge_interface():
         
         # Test bridge connectivity
         print("Testing bridge connectivity...")
-        try:
-            ping_result = subprocess.run(['ping', '-c', '1', '-W', '1', '10.0.0.1'], 
-                                       capture_output=True, text=True)
-            if ping_result.returncode == 0:
-                print("✓ Bridge connectivity test PASSED")
-            else:
-                print("⚠ Bridge connectivity test FAILED (may be normal)")
-        except Exception as e:
-            print(f"⚠ Could not test bridge connectivity: {e}")
-            sys.exit(1)
+        ping_result = subprocess.run(['ping', '-c', '1', '-W', '1', '10.0.0.1'], 
+                                    capture_output=True, text=True)
+        if ping_result.returncode == 0:
+            print("✓ Bridge connectivity test PASSED")
+        else:
+            print("⚠ Bridge connectivity test FAILED (may be normal)")
     else:
         print("✗ Bridge interface creation failed")
         print("CRITICAL: Bridge setup is required for container networking")
@@ -2387,49 +2308,45 @@ def setup_nat_forwarding():
         sys.exit(1)  # Exit the Python process on critical failure
     
     if "SOLUTION":
-        try:
-            # Enable IP forwarding
-            result = subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], 
-                                  capture_output=True, text=True, check=True)
-            print(f"✓ Enabled IP forwarding: {result.stdout.strip()}")
-            
-            # Get default network interface
-            route_result = subprocess.run(['ip', 'route', 'show', 'default'], 
-                                        capture_output=True, text=True, check=True)
-            default_iface = route_result.stdout.split()[4]
-            print(f"✓ Detected default interface: {default_iface}")
-            
-            # Clear existing iptables rules
-            subprocess.run(['iptables', '-F'], check=True)
-            subprocess.run(['iptables', '-t', 'nat', '-F'], check=True)
-            subprocess.run(['iptables', '-t', 'mangle', '-F'], check=True)
-            subprocess.run(['iptables', '-X'], check=True)
-            print("✓ Cleared existing iptables rules")
-            
-            # Set default policies
-            subprocess.run(['iptables', '-P', 'FORWARD', 'ACCEPT'], check=True)
-            subprocess.run(['iptables', '-P', 'INPUT', 'ACCEPT'], check=True)
-            subprocess.run(['iptables', '-P', 'OUTPUT', 'ACCEPT'], check=True)
-            print("✓ Set default policies to ACCEPT")
-            
-            # Add iptables rules for NAT and forwarding
-            subprocess.run(['iptables', '-t', 'nat', '-A', 'POSTROUTING', '-s', '10.0.0.0/24', 
-                           '!', '-o', 'bridge0', '-j', 'MASQUERADE'], check=True)
-            print("✓ Added NAT rule for 10.0.0.0/24")
-            
-            subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', default_iface, '-j', 'ACCEPT'], check=True)
-            subprocess.run(['iptables', '-A', 'FORWARD', '-i', default_iface, '-o', 'bridge0', 
-                           '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], check=True)
-            subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', 'bridge0', '-j', 'ACCEPT'], check=True)
-            print("✓ Added forwarding rules")
-            
-            print("✓ NAT and forwarding setup completed successfully")
-            return True
-            
-        except Exception as e:
-            print(f"✗ Unexpected error: {e}")
-            print("Critical failure - NAT setup failed")
-            sys.exit(1)  # Exit the Python process on critical failure
+        # Enable IP forwarding
+        result = subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], 
+                                capture_output=True, text=True, check=True)
+        print(f"✓ Enabled IP forwarding: {result.stdout.strip()}")
+        
+        # Get default network interface
+        route_result = subprocess.run(['ip', 'route', 'show', 'default'], 
+                                    capture_output=True, text=True, check=True)
+        print(f"🔧 DEBUG: Route result: {route_result.stdout}")
+        default_iface = route_result.stdout.split()[4]
+        print(f"✓ Detected default interface: {default_iface}")
+        
+        # Clear existing iptables rules
+        subprocess.run(['iptables', '-F'], check=True)
+        subprocess.run(['iptables', '-t', 'nat', '-F'], check=True)
+        subprocess.run(['iptables', '-t', 'mangle', '-F'], check=True)
+        subprocess.run(['iptables', '-X'], check=True)
+        print("✓ Cleared existing iptables rules")
+        
+        # Set default policies
+        subprocess.run(['iptables', '-P', 'FORWARD', 'ACCEPT'], check=True)
+        subprocess.run(['iptables', '-P', 'INPUT', 'ACCEPT'], check=True)
+        subprocess.run(['iptables', '-P', 'OUTPUT', 'ACCEPT'], check=True)
+        print("✓ Set default policies to ACCEPT")
+        
+        # Add iptables rules for NAT and forwarding
+        subprocess.run(['iptables', '-t', 'nat', '-A', 'POSTROUTING', '-s', '10.0.0.0/24', 
+                        '!', '-o', 'bridge0', '-j', 'MASQUERADE'], check=True)
+        print("✓ Added NAT rule for 10.0.0.0/24")
+        
+        subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', default_iface, '-j', 'ACCEPT'], check=True)
+        subprocess.run(['iptables', '-A', 'FORWARD', '-i', default_iface, '-o', 'bridge0', 
+                        '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], check=True)
+        subprocess.run(['iptables', '-A', 'FORWARD', '-i', 'bridge0', '-o', 'bridge0', '-j', 'ACCEPT'], check=True)
+        print("✓ Added forwarding rules")
+        
+        print("✓ NAT and forwarding setup completed successfully")
+        return True
+             # Exit the Python process on critical failure
     else:
         # TODO: Implement NAT and forwarding setup
         #   - Enable IP forwarding with sysctl
@@ -2483,8 +2400,6 @@ def test_nat_forwarding():
             forward_status = f.read().strip()
         if forward_status == '1':
             print("✓ IP forwarding is enabled")
-        else:
-            print("⚠ IP forwarding may not be enabled")
     else:
         print("✗ NAT and forwarding setup failed")
     
@@ -2544,129 +2459,122 @@ def create_container_network(container_id, ip_suffix):
         print("Critical failure - network setup requires root privileges")
         sys.exit(1)  # Exit the Python process on critical failure
     
-    
-    try:
-        if "SOLUTION":
-            # Create shorter interface names (Linux limit: 15 characters)
-            short_id = container_id[-8:]
-            veth_host = f"veth0_{short_id}"
-            veth_container = f"veth1_{short_id}"
-            netns_name = f"netns_{short_id}"
-            container_ip = f"10.0.0.{ip_suffix}"
-            
-            # print(f"🔧 DEBUG: Creating interfaces:")
-            print(f"   Host interface: {veth_host}")
-            print(f"   Container interface: {veth_container}")
-            print(f"   Namespace: {netns_name}")
-            print(f"   Container IP: {container_ip}")
-            
-            # Create veth pair
-            # print(f"🔧 DEBUG: Creating veth pair...")
-            subprocess.run(['ip', 'link', 'add', 'dev', veth_host, 'type', 'veth', 
-                            'peer', 'name', veth_container], check=True)
-            print(f"✓ Created veth pair: {veth_host} <-> {veth_container}")
-            
-            # Attach host end to bridge
-            # print(f"🔧 DEBUG: Attaching {veth_host} to bridge...")
-            subprocess.run(['ip', 'link', 'set', 'dev', veth_host, 'up'], check=True)
-            subprocess.run(['ip', 'link', 'set', veth_host, 'master', 'bridge0'], check=True)
-            print(f"✓ Attached {veth_host} to bridge0")
-            
-            # Create network namespace
-            # print(f"🔧 DEBUG: Creating network namespace {netns_name}...")
-            subprocess.run(['ip', 'netns', 'add', netns_name], check=True)
-            print(f"✓ Created namespace: {netns_name}")
-            
-            # Move container end to namespace
-            # print(f"🔧 DEBUG: Moving {veth_container} to namespace...")
-            subprocess.run(['ip', 'link', 'set', veth_container, 'netns', netns_name], check=True)
-            print(f"✓ Moved {veth_container} to {netns_name}")
-            
-            # Configure container network interface
-            # print(f"🔧 DEBUG: Configuring container interface...")
-            subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 'dev', 'lo', 'up'], check=True)
-            subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'add', 
-                            f'{container_ip}/24', 'dev', veth_container], check=True)
-            subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 
-                            'dev', veth_container, 'up'], check=True)
-            print(f"✓ Configured {veth_container} with IP {container_ip}/24")
-            
-            # Add default route
-            # print(f"🔧 DEBUG: Adding default route...")
-            subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'route', 'add', 
-                            'default', 'via', '10.0.0.1'], check=True)
-            print(f"✓ Added default route via 10.0.0.1")
-            
-            print(f"✓ Successfully created network for container {container_id}")
-            return netns_name
-
-        else:
-            # TODO: Implement container network creation
-            #   - Create veth pair with unique names
-            #   - Attach host end to bridge0
-            #   - Create network namespace
-            #   - Move container end to namespace
-            #   - Configure IP address and routing in namespace
-            #   - Set up DNS resolution
-
-            short_id = container_id[-8:]
-            netns_name = f"isolated_{short_id}"
-            
-            # print(f"🔧 DEBUG: Creating isolated namespace:")
-            print(f"   Namespace: {netns_name}")
-            print(f"   Container ID: {container_id}")
-            
-            # Create network namespace
-            # print(f"🔧 DEBUG: Creating network namespace {netns_name}...")
-            subprocess.run(['ip', 'netns', 'add', netns_name], check=True)
-            print(f"✓ Created isolated namespace: {netns_name}")
-            
-            # Configure only loopback interface (no external connectivity)
-            # print(f"🔧 DEBUG: Configuring loopback interface...")
-            subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 'dev', 'lo', 'up'], check=True)
-            print(f"✓ Configured loopback interface in {netns_name}")
-            
-            # Test that the namespace is isolated (should only have loopback)
-            # print(f"🔧 DEBUG: Verifying network isolation...")
-            result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'show'], 
-                                capture_output=True, text=True, check=True)
-            
-            # Count network interfaces (should only be loopback)
-            interfaces = len([line for line in result.stdout.split('\n') if ': ' in line and 'lo:' in line])
-            if interfaces == 1:
-                print(f"✓ Network isolation verified: only loopback interface present")
-            else:
-                print(f"⚠ Warning: Expected 1 interface (loopback), found {interfaces}")
-            
-            # Test that external connectivity is blocked
-            # print(f"🔧 DEBUG: Testing network isolation...")
-            ping_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '-W', '1', '8.8.8.8'], 
-                                    capture_output=True, text=True)
-            if ping_test.returncode != 0:
-                print(f"✓ Network isolation confirmed: cannot reach external hosts")
-            else:
-                print(f"⚠ Warning: Network isolation may not be working - external ping succeeded")
-            
-            # Test loopback connectivity
-            # print(f"🔧 DEBUG: Testing loopback connectivity...")
-            loopback_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '127.0.0.1'], 
-                                        capture_output=True, text=True)
-            if loopback_test.returncode == 0:
-                print(f"✓ Loopback connectivity confirmed")
-            else:
-                print(f"⚠ Warning: Loopback connectivity failed")
-            
-            print(f"✓ Successfully created isolated network namespace: {netns_name}")
-            print(f"  - No external connectivity")
-            print(f"  - Only loopback interface (127.0.0.1)")
-            print(f"  - Complete network isolation")
-            
-            return netns_name
+    if "SOLUTION":
+        # Create shorter interface names (Linux limit: 15 characters)
+        short_id = container_id[-8:]
+        veth_host = f"veth0_{short_id}"
+        veth_container = f"veth1_{short_id}"
+        netns_name = f"netns_{short_id}"
+        container_ip = f"10.0.0.{ip_suffix}"
         
-    except Exception as e:
-        print(f"✗ Unexpected error: {e}")
-        print("Critical failure - container network creation failed")
-        sys.exit(1)  # Exit the Python process on critical failure
+        # print(f"🔧 DEBUG: Creating interfaces:")
+        print(f"   Host interface: {veth_host}")
+        print(f"   Container interface: {veth_container}")
+        print(f"   Namespace: {netns_name}")
+        print(f"   Container IP: {container_ip}")
+        
+        # Create veth pair
+        # print(f"🔧 DEBUG: Creating veth pair...")
+        subprocess.run(['ip', 'link', 'add', 'dev', veth_host, 'type', 'veth', 
+                        'peer', 'name', veth_container], check=True)
+        print(f"✓ Created veth pair: {veth_host} <-> {veth_container}")
+        
+        # Attach host end to bridge
+        # print(f"🔧 DEBUG: Attaching {veth_host} to bridge...")
+        subprocess.run(['ip', 'link', 'set', 'dev', veth_host, 'up'], check=True)
+        subprocess.run(['ip', 'link', 'set', veth_host, 'master', 'bridge0'], check=True)
+        print(f"✓ Attached {veth_host} to bridge0")
+        
+        # Create network namespace
+        # print(f"🔧 DEBUG: Creating network namespace {netns_name}...")
+        subprocess.run(['ip', 'netns', 'add', netns_name], check=True)
+        print(f"✓ Created namespace: {netns_name}")
+        
+        # Move container end to namespace
+        # print(f"🔧 DEBUG: Moving {veth_container} to namespace...")
+        subprocess.run(['ip', 'link', 'set', veth_container, 'netns', netns_name], check=True)
+        print(f"✓ Moved {veth_container} to {netns_name}")
+        
+        # Configure container network interface
+        # print(f"🔧 DEBUG: Configuring container interface...")
+        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 'dev', 'lo', 'up'], check=True)
+        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'add', 
+                        f'{container_ip}/24', 'dev', veth_container], check=True)
+        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 
+                        'dev', veth_container, 'up'], check=True)
+        print(f"✓ Configured {veth_container} with IP {container_ip}/24")
+        
+        # Add default route
+        # print(f"🔧 DEBUG: Adding default route...")
+        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'route', 'add', 
+                        'default', 'via', '10.0.0.1'], check=True)
+        print(f"✓ Added default route via 10.0.0.1")
+        
+        print(f"✓ Successfully created network for container {container_id}")
+        return netns_name
+
+    else:
+        # TODO: Implement container network creation
+        #   - Create veth pair with unique names
+        #   - Attach host end to bridge0
+        #   - Create network namespace
+        #   - Move container end to namespace
+        #   - Configure IP address and routing in namespace
+        #   - Set up DNS resolution
+
+        short_id = container_id[-8:]
+        netns_name = f"isolated_{short_id}"
+        
+        # print(f"🔧 DEBUG: Creating isolated namespace:")
+        print(f"   Namespace: {netns_name}")
+        print(f"   Container ID: {container_id}")
+        
+        # Create network namespace
+        # print(f"🔧 DEBUG: Creating network namespace {netns_name}...")
+        subprocess.run(['ip', 'netns', 'add', netns_name], check=True)
+        print(f"✓ Created isolated namespace: {netns_name}")
+        
+        # Configure only loopback interface (no external connectivity)
+        # print(f"🔧 DEBUG: Configuring loopback interface...")
+        subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'link', 'set', 'dev', 'lo', 'up'], check=True)
+        print(f"✓ Configured loopback interface in {netns_name}")
+        
+        # Test that the namespace is isolated (should only have loopback)
+        # print(f"🔧 DEBUG: Verifying network isolation...")
+        result = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ip', 'addr', 'show'], 
+                            capture_output=True, text=True, check=True)
+        
+        # Count network interfaces (should only be loopback)
+        interfaces = len([line for line in result.stdout.split('\n') if ': ' in line and 'lo:' in line])
+        if interfaces == 1:
+            print(f"✓ Network isolation verified: only loopback interface present")
+        else:
+            print(f"⚠ Warning: Expected 1 interface (loopback), found {interfaces}")
+        
+        # Test that external connectivity is blocked
+        # print(f"🔧 DEBUG: Testing network isolation...")
+        ping_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '-W', '1', '8.8.8.8'], 
+                                capture_output=True, text=True)
+        if ping_test.returncode != 0:
+            print(f"✓ Network isolation confirmed: cannot reach external hosts")
+        else:
+            print(f"⚠ Warning: Network isolation may not be working - external ping succeeded")
+        
+        # Test loopback connectivity
+        # print(f"🔧 DEBUG: Testing loopback connectivity...")
+        loopback_test = subprocess.run(['ip', 'netns', 'exec', netns_name, 'ping', '-c', '1', '127.0.0.1'], 
+                                    capture_output=True, text=True)
+        if loopback_test.returncode == 0:
+            print(f"✓ Loopback connectivity confirmed")
+        else:
+            print(f"⚠ Warning: Loopback connectivity failed")
+        
+        print(f"✓ Successfully created isolated network namespace: {netns_name}")
+        print(f"  - No external connectivity")
+        print(f"  - Only loopback interface (127.0.0.1)")
+        print(f"  - Complete network isolation")
+        
+        return netns_name
 
 """
 <details>
@@ -2688,47 +2596,44 @@ def cleanup_container_network(container_id):
         print("⚠ Warning: Network cleanup requires root privileges")
         return
     
-    try:
-        if "SOLUTION":
-            short_id = container_id[-8:]
-            veth_host = f"veth0_{short_id}"
-            netns_name = f"netns_{short_id}"
-            
-            # print(f"🔧 DEBUG: Cleaning up network for container {container_id}")
-            
-            # Remove network namespace
-            subprocess.run(['ip', 'netns', 'del', netns_name], capture_output=True, text=True)
-            print(f"✓ Removed namespace: {netns_name}")
-            
-            # Remove host veth if it still exists
-            subprocess.run(['ip', 'link', 'del', veth_host], capture_output=True, text=True)
-            print(f"✓ Removed host interface: {veth_host}")
+    if "SOLUTION":
+        short_id = container_id[-8:]
+        veth_host = f"veth0_{short_id}"
+        netns_name = f"netns_{short_id}"
         
-        else:
-            # TODO: Implement container network cleanup
-            #   - Remove network namespace
-            #   - Remove host veth if it still exists
+        # print(f"🔧 DEBUG: Cleaning up network for container {container_id}")
+        
+        # Remove network namespace
+        subprocess.run(['ip', 'netns', 'del', netns_name], capture_output=True, text=True)
+        print(f"✓ Removed namespace: {netns_name}")
+        
+        # Remove host veth if it still exists
+        subprocess.run(['ip', 'link', 'del', veth_host], capture_output=True, text=True)
+        print(f"✓ Removed host interface: {veth_host}")
+    
+    else:
+        # TODO: Implement container network cleanup
+        #   - Remove network namespace
+        #   - Remove host veth if it still exists
 
-            short_id = container_id[-8:]
-            netns_name = f"isolated_{short_id}"
-            
-            # print(f"🔧 DEBUG: Cleaning up isolated namespace for container {container_id}")
-            print(f"   Short ID: {short_id}")
-            print(f"   Namespace: {netns_name}")
-            
-            # Remove network namespace
-            # print(f"🔧 DEBUG: Removing network namespace {netns_name}...")
-            result = subprocess.run(['ip', 'netns', 'del', netns_name], 
-                                capture_output=True, text=True)
-            if result.returncode == 0:
-                print(f"✓ Removed isolated namespace: {netns_name}")
-            else:
-                print(f"⚠ Could not remove namespace {netns_name}: {result.stderr}")
-            
-            print(f"✓ Isolated network cleanup completed for container {container_id}")
+        short_id = container_id[-8:]
+        netns_name = f"isolated_{short_id}"
         
-    except Exception as e:
-        print(f"⚠ Warning: Could not fully clean up network for {container_id}: {e}")
+        # print(f"🔧 DEBUG: Cleaning up isolated namespace for container {container_id}")
+        print(f"   Short ID: {short_id}")
+        print(f"   Namespace: {netns_name}")
+        
+        # Remove network namespace
+        # print(f"🔧 DEBUG: Removing network namespace {netns_name}...")
+        result = subprocess.run(['ip', 'netns', 'del', netns_name], 
+                            capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"✓ Removed isolated namespace: {netns_name}")
+        else:
+            print(f"⚠ Could not remove namespace {netns_name}: {result.stderr}")
+        
+        print(f"✓ Isolated network cleanup completed for container {container_id}")
+        
 
 
 def test_container_network():
@@ -3261,17 +3166,12 @@ def security_alert_handler(syscall_line, pid):
     if 'unshare' in syscall_line and ('CLONE_NEWNET' in syscall_line):
         print(f"🔥 CRITICAL: CVE-2024-0137 network namespace escape detected!")
         print(f"   Terminating malicious container...")
-        try:
-            if "SOLUTION":
-                os.kill(pid, signal.SIGKILL)
-                print(f"✓ Process {pid} terminated")
-            else:
-                # TODO: Kill the entire process group
-                pass
-        except Exception as e:
-            print(f"⚠ Could not terminate process {pid}: {e}")
-            print("Critical failure - could not terminate malicious process")
-            sys.exit(1)  # Exit the Python process on critical failure
+        if "SOLUTION":
+            os.kill(pid, signal.SIGKILL)
+            print(f"✓ Process {pid} terminated")
+        else:
+            # TODO: Kill the entire process group
+            pass# Exit the Python process on critical failure
     
     elif 'setns' in syscall_line:
         print(f"🔥 CRITICAL: Namespace manipulation detected!")
