@@ -1616,7 +1616,7 @@ def test_create_cgroup_comprehensive_part1(create_cgroup_comprehensive_part1):
     print("Testing comprehensive cgroup creation - Part 1...")
     
     # Test comprehensive cgroup with memory limit
-    cgroup_path = create_cgroup_comprehensive_part1("test_comprehensive_p1", "100M")
+    cgroup_path = create_cgroup_comprehensive_part1("test_comprehensive_p1", "100M", None)
     if cgroup_path:
         assert os.path.exists(cgroup_path), "Cgroup directory should exist"
         
