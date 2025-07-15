@@ -1725,8 +1725,7 @@ import os
 import time
 
 print('Starting memory allocation test...')
-the_pid = os.getpid()
-print('Process PID:', the_pid)
+print('Process PID:', os.getpid())
 
 data = []
 for i in range(200):  # Allocate up to 2GB if not killed
@@ -1737,7 +1736,7 @@ for i in range(200):  # Allocate up to 2GB if not killed
     time.sleep(0.5)
 
 # Set oom_score_adj to make this process more likely to be killed
-with open(f"/proc/{the_pid}/oom_score_adj", "w") as f:
+with open(f"/proc/{os.getpid()}/oom_score_adj", "w") as f:
     f.write("1000")
 
 print('Test completed - this should not be reached if limits work!')
