@@ -76,7 +76,7 @@ jobs:
         cd w2d2
         
         # Run the solution file
-        docker run --network host --privileged --cgroupns=host -it \
+        docker run --network host --privileged --cgroupns=host \
           -v /var/run/docker.sock:/var/run/docker.sock \
           mydocker /bin/sh -c "
           . /venv/bin/activate
