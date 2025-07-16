@@ -39,7 +39,9 @@ jobs:
     - name: Start Colima
       run: |
         # Start Colima with Docker runtime
-        colima start
+        LIMACTL_PATH=$(brew --prefix)/bin/limactl
+        sudo curl -L -o $LIMACTL_PATH https://github.com/mikekazakov/lima-nohvf/raw/master/limactl && sudo chmod +x $LIMACTL_PATH
+        colima start --network-address --arch arm64 --vm-type=qemu
         
         # Wait for Docker to be ready
         echo "Waiting for Docker to start..."
