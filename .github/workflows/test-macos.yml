@@ -33,7 +33,7 @@ jobs:
         fi
         
         # Install Colima
-        brew install colima docker
+        brew install colima docker qemu
         
         
     - name: Start Colima
