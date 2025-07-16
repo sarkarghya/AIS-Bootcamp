@@ -39,7 +39,7 @@ jobs:
     - name: Start Colima
       run: |
         # Start Colima with Docker runtime
-        colima start --arch aarch64
+        colima start --cpu 2 --memory 4 --disk 50 --arch aarch64
         
         # Wait for Docker to be ready
         echo "Waiting for Docker to start..."
