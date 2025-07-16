@@ -45,9 +45,6 @@ jobs:
         
         # Wait for Docker to be ready
         echo "Waiting for Docker to start..."
-        timeout 60 bash -c 'until docker info > /dev/null 2>&1; do sleep 2; done'
-        
-        # Verify Docker is working
         docker --version
         
     - name: Install Python dependencies
