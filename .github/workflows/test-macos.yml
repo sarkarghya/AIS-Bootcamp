@@ -33,7 +33,7 @@ jobs:
         fi
         
         # Install Colima
-        brew install colima
+        brew install colima docker
         
         
     - name: Start Colima
