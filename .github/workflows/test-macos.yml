@@ -4,12 +4,12 @@ on:
   push:
     branches: [ main, master ]
     paths:
-      - 'test2/**'
+      - 'w2d2/**'
       - '.github/workflows/test-macos.yml'
   pull_request:
     branches: [ main, master ]
     paths:
-      - 'test2/**'
+      - 'w2d2/**'
       - '.github/workflows/test-macos.yml'
 
 jobs:
@@ -54,12 +54,12 @@ jobs:
         
     - name: Build Docker image
       run: |
-        cd test2
+        cd w2d2
         docker build --network=host . -t mydocker
         
     - name: Test basic container functionality
       run: |
-        cd test2
+        cd w2d2
         
         # Test that the container can start and run basic commands
         docker run --rm mydocker /bin/sh -c "echo 'Container is working'"
@@ -73,14 +73,12 @@ jobs:
         
     - name: Run w2d2_solution.py
       run: |
-        cd test2
+        cd w2d2
         
-        # Run the solution file and capture output
-        docker run --network host --privileged --cgroupns=host \
+        # Run the solution file
+        docker run --network host --privileged --cgroupns=host -it \
           -v /var/run/docker.sock:/var/run/docker.sock \
-          -v $(pwd):/workspace \
           mydocker /bin/sh -c "
-          cd /workspace
           . /venv/bin/activate
           python3 w2d2_solution.py
           "
