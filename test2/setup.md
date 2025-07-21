@@ -1,5 +1,7 @@
 # Docker Setup Instructions
 
+Ensure that your computer has atleast 13 GB of storage.
+
 ## Build and Run Container
 ```bash
 # Build Docker image from current directory
@@ -34,3 +36,7 @@ docker rm $(docker ps -aq)
 # Remove all unused containers, networks, images and volumes
 docker system prune --all --volumes
 ```
+
+docker system prune --all --volumes
+docker build --network=host . -t mydocker
+docker run --network host --privileged --cgroupns=host -it -v /var/run/docker.sock:/var/run/docker.sock mydocker /bin/sh

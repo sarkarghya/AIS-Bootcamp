@@ -13,17 +13,14 @@ https://docs.djangoproject.com/en/3.0/ref/settings/
 import os
 import base64
 
-# Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/3.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'kmgysa#fz+9(z1*=c0ydrjizk*7sthm2ga1z4=^61$cxcq8b$l'
 
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
 ALLOWED_HOSTS = []
@@ -144,15 +141,6 @@ AUTHENTICATION_BACKENDS = ['LegacySite.models.OurBackend']
 # Django 3.2 compat
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 
-# ShoddyCorp note: hack to get around stupid browser restrictions.
-# Fixes issue with Chrome not allowing partner sites to access the site.
 SESSION_COOKIE_SAMESITE = 'Lax'
-# Don't know if this is necessary but all this stupid security stuff just
-# makes my job harder
-SESSION_COOKIE_HTTPONLY = False
 
-# DO NOT delete line 156-158, this is for using Django/Gradescope integration
-# Also used for my own testing of autograder
-RUN_GITHUB_ACTIONS = os.environ.get('GITHUB', 'no')
-if os.path.exists('/autograder/results') and os.path.isdir('/autograder/results') or RUN_GITHUB_ACTIONS == 'yes':
-    TEST_RUNNER = 'GiftcardSite.gradescope_django_runner.GradescopeDjangoRunner'
+SESSION_COOKIE_HTTPONLY = False

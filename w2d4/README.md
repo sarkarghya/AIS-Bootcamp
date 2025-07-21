@@ -1,29 +1,27 @@
+# W2D4
+
 # Assignment 2: When a Wreck Reaches the World Wide Web
 # Module 1: Getting Setup
 
 ## Introduction
-Your company hired Shoddycorp's Cut-Rate Contracting to create a gift card website. The code needs significant improvement, and you must fix it.
+Your AI company hired External Contracting to create a gift card website. Unfortunately it seems the contractors have done a great job. You are assigned to review the code and fix it. If you do not make the necessary changes your company may suffer significant lossses.
 
-## Environment Setup
-1. Use git with descriptive commit messages. Commits must be signed.
-2. Required tools: Python 3, Django, and optionally SQLite, Burp Suite.
+## Setup
+``` bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-## Setup Steps
+## Migration
 1. Create appropriate `.gitignore` for Python/Django projects
 2. Setup Django:
-```
+``` bash
 python3 manage.py makemigrations LegacySite
 python3 manage.py migrate
 python3 manage.py shell -c 'import import_dbs'
 ```
 3. Run the server:
-```
+``` bash
 python3 manage.py runserver
 ```
-
-## GitHub Actions
-Configure a workflow in `.github/workflows/` that:
-- Sets up Python environment
-- Installs dependencies
-- Runs database migrations
-- Executes basic tests

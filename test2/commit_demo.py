@@ -108,6 +108,24 @@ def _format_table_output(headers, rows):
         output.append('\t\t'.join(row))
     return '\n'.join(output)
 
+def help_command():
+    """Display help message"""
+    help_text = """DOCKER - Simplified version to demonstrate commit functionality
+
+Usage: python3 <filename> [command] [args...]
+
+Commands:
+  init     Create an image from a directory
+  images   List images
+  ps       List containers
+  run      Create a container
+  commit   Commit a container to an image
+  rm       Delete an image or container
+  help     Display this message
+"""
+    print(help_text)
+    return 0
+
 def init(args):
     """Create an image from a directory and return the image ID: DOCKER init <directory>"""
     if len(args) < 1:
@@ -376,23 +394,5 @@ def test_commit():
     else:
         print("Warning: Could not find wget HTTP request container")
     return True
-
-def help_command():
-    """Display help message"""
-    help_text = """DOCKER - Simplified version to demonstrate commit functionality
-
-Usage: python3 <filename> [command] [args...]
-
-Commands:
-  init     Create an image from a directory
-  images   List images
-  ps       List containers
-  run      Create a container
-  commit   Commit a container to an image
-  rm       Delete an image or container
-  help     Display this message
-"""
-    print(help_text)
-    return 0
 
 test_commit()

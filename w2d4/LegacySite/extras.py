@@ -18,7 +18,7 @@ elif sys.platform == 'darwin':
 else:
     raise Exception("Unsupported platform: {}".format(sys.platform))
 
-# KG: Something seems fishy here. Why are we seeding here?
+
 def generate_salt(length, debug=True):
     import random
     random.seed(SEED)
@@ -50,7 +50,7 @@ def write_card_data(card_file_path, product, price, customer):
     data_dict['customer_id'] = customer.username
     data_dict['total_value'] = price
     record = {'record_type':'amount_change', "amount_added":2000,}
-    # TODO: replace this with a real signature
+
     record['signature'] = get_fake_signature(json.dumps(record))
     data_dict['records'] = [record,]
     with open(card_file_path, 'w') as card_file:
@@ -65,7 +65,7 @@ def parse_card_data(card_file_data, card_path_name):
         pass
     with open(card_path_name, 'wb') as card_file:
         card_file.write(card_file_data)
-    # KG: Are you sure you want the user to control that input?
+
     print(f"running: {CARD_PARSER} 2 {card_path_name} > tmp_file")
     ret_val = system(f"{CARD_PARSER} 2 {card_path_name} > tmp_file")
     if ret_val != 0:

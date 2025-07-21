@@ -2314,6 +2314,9 @@ def setup_nat_forwarding():
                                 capture_output=True, text=True, check=True)
         print(f"✓ Enabled IP forwarding: {result.stdout.strip()}")
         
+        if TARGET_ARCH == "arm64":
+            command = 'gw=$(ip route show | grep "dev eth0" | grep "/" | awk \'{print $1}\' | sed \'s|0/.*|1|\') && echo "ip route add default via $gw dev eth0"'
+            subprocess.run(command, shell=True, capture_output=True, text=True)
         # Get default network interface
         route_result = subprocess.run(['ip', 'route', 'show', 'default'], 
                                     capture_output=True, text=True, check=True)

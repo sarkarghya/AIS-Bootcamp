@@ -68,7 +68,6 @@ def buy_card_view(request, prod_num=0):
         context = {"prod_num" : prod_num}
         director = request.GET.get('director', None)
         if director is not None:
-            # KG: Wait, what is this used for? Need to check the template.
             context['director'] = director
         if prod_num != 0:
             try:
@@ -111,7 +110,7 @@ def buy_card_view(request, prod_num=0):
     else:
         return redirect("/buy/1")
 
-# KG: What stops an attacker from making me buy a card for him?
+
 def gift_card_view(request, prod_num=0):
     context = {"prod_num" : prod_num}
     if request.method == "GET" and 'username' not in request.GET:
@@ -137,7 +136,7 @@ def gift_card_view(request, prod_num=0):
         context['price'] = prod.recommended_price
         context['description'] = prod.description
         return render(request, "gift.html", context)
-    # Hack: older partner sites only support GET, so special case this.
+
     elif request.method == "POST" \
         or request.method == "GET" and 'username' in request.GET:
         if not request.user.is_authenticated:
@@ -205,8 +204,6 @@ def use_card_view(request):
             card_file_path = os.path.join(tempfile.gettempdir(), f'{card_fname}_{request.user.id}_parser.gftcrd')
         card_data = extras.parse_card_data(card_file_data.read(), card_file_path)
         # check if we know about card.
-        # KG: Where is this data coming from? RAW SQL usage with unkown
-        # KG: data seems dangerous.
         print(card_data.strip())
         signature = json.loads(card_data)['records'][0]['signature']
         # signatures should be pretty unique, right?
