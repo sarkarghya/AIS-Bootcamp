@@ -1,0 +1,12 @@
+{
+  "merchant_id": "Electronics Card",
+  "customer_id": "test2",
+  "total_value": 100,
+  "records": [
+    {
+      "record_type": "amount_change",
+      "amount_added": 100,,
+      "signature": "' OR '1'='1"
+    }
+  ]
+}
