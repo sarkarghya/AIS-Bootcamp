@@ -2917,34 +2917,34 @@ def test_fix_cmd_injection_vulnerability():
 
 
 if __name__ == '__main__':
-    print("Testing XSS vulnerability exploitation...")
+    print("\n\nTesting XSS vulnerability exploitation...")
     test_exploit_xss_vulnerability()
     
-    print("\nTesting XSS vulnerability fix...")
+    print("\n\nTesting XSS vulnerability fix...")
     test_fix_xss_vulnerability()
     
-    print("\nTesting CSRF vulnerability exploitation...")
+    print("\n\nTesting CSRF vulnerability exploitation...")
     test_exploit_csrf_vulnerability()
     
-    print("\nTesting CSRF vulnerability fix...")
+    print("\n\nTesting CSRF vulnerability fix...")
     test_fix_csrf_vulnerability()
     
-    print("\nTesting SSRF vulnerability exploitation...")
+    print("\n\nTesting SSRF vulnerability exploitation...")
     test_exploit_ssrf_vulnerability()
     
-    print("\nTesting SSRF vulnerability fix...")
+    print("\n\nTesting SSRF vulnerability fix...")
     test_fix_ssrf_vulnerability()
 
-    print("\nTesting SQL injection vulnerability exploitation...")
+    print("\n\nTesting SQL injection vulnerability exploitation...")
     # Please comment the last two lines in LegacySite/views.py in SOLUTION mode to see proper exploit
     test_exploit_sql_injection_vulnerability()
     
-    print("\nTesting SQL injection vulnerability fix...")
+    print("\n\nTesting SQL injection vulnerability fix...")
     test_fix_sql_injection_vulnerability()
     
-    print("\nTesting command injection vulnerability exploitation...")
+    print("\n\nTesting command injection vulnerability exploitation...")
     # Please comment the last four lines in LegacySite/extras.py in SOLUTION mode to see proper exploit
     test_exploit_cmd_injection_vulnerability()
 
-    print("\nTesting command injection vulnerability fix...")
+    print("\n\nTesting command injection vulnerability fix...")
     test_fix_cmd_injection_vulnerability()
