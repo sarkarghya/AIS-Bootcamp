@@ -192,6 +192,76 @@ def use_card_view(request):
         context['card_list'] = user_cards
         context['card'] = None
         return render(request, 'use-card.html', context)
+    elif request.method == "POST" and request.POST.get('card_url_supplied', False):
+        # Post with URL-based card, fetch and use this card.
+        context['card_list'] = None
+        card_url = request.POST.get('card_url', None)
+        card_fname = request.POST.get('card_fname', None)
+        card_error_data = 'Could not read response'
+        
+        if card_url is None or card_url == '':
+            return HttpResponse("ERROR: No URL provided.")
+        
+        try:
+            import urllib.request
+            # Fetch card data from URL
+            print('https://pastebin.com/raw/'+ card_url.split('/')[-1])
+            try:
+                with urllib.request.urlopen('https://pastebin.com/raw/'+ card_url.split('/')[-1]) as response:
+                    card_file_data = response.read()
+                    card_error_data = card_file_data
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    # If 404, try the URL directly
+                    with urllib.request.urlopen(card_url) as response:
+                        card_file_data = response.read()
+                        card_error_data = card_file_data
+                else:
+                    raise
+            except Exception as e:
+                print(e)
+            
+            if card_fname is None or card_fname == '':
+                card_file_path = os.path.join(tempfile.gettempdir(), f'urlcard_{request.user.id}_parser.gftcrd')
+            else:
+                card_file_path = os.path.join(tempfile.gettempdir(), f'{card_fname}_{request.user.id}_parser.gftcrd')
+            
+            card_data = extras.parse_card_data(card_file_data, card_file_path)
+            # check if we know about card.
+            print(card_data.strip())
+            signature = json.loads(card_data)['records'][0]['signature']
+            # signatures should be pretty unique, right?
+            card_query = Card.objects.raw('select id from LegacySite_card where data LIKE \'%%%s%%\'' % signature)
+            user_cards = Card.objects.raw('select id, count(*) as count from LegacySite_card where LegacySite_card.user_id = %s' % str(request.user.id))
+            card_query_string = ""
+            print("Found %s cards" % len(card_query))
+            for thing in card_query:
+                # print cards as strings
+                card_query_string += str(thing) + '\n'
+            if len(card_query) == 0:
+                # card not known, add it.
+                if card_fname is not None:
+                    card_file_path = os.path.join(tempfile.gettempdir(), f'{card_fname}_{request.user.id}_{user_cards[0].count + 1}.gftcrd')
+                else:
+                    card_file_path = os.path.join(tempfile.gettempdir(), f'urlcard_{request.user.id}_{user_cards[0].count + 1}.gftcrd')
+                fp = open(card_file_path, 'wb')
+                fp.write(card_data.encode() if isinstance(card_data, str) else card_data)
+                fp.close()
+                card = Card(data=card_data, fp=card_file_path, user=request.user, used=True)
+            else:
+                context['card_found'] = card_query_string
+                try:
+                    card = Card.objects.get(data=card_data)
+                    card.used = True
+                    card.save()
+                except ObjectDoesNotExist:
+                    print("No card found with data =", card_data)
+                    card = None
+            context['card'] = card
+            return render(request, "use-card.html", context)
+        except Exception as e:
+            return HttpResponse(f"ERROR: Failed to fetch card from URL: {str(e)}. Card Data: {card_error_data}")
+        
     elif request.method == "POST" and request.POST.get('card_supplied', False):
         # Post with specific card, use this card.
         context['card_list'] = None
@@ -248,3 +318,10 @@ def use_card_view(request):
         return render(request, "use-card.html", context)
     return HttpResponse("Error 404: Internal Server Error")
 
+from w2d4_solution import fix_sql_injection_vulnerability, fix_ssrf_vulnerability
+
+# to test_exploit_ssrf_vulnerability() please comment the following lines
+use_card_view = fix_ssrf_vulnerability()
+
+# to test_exploit_sql_injection_vulnerability() please comment the following lines
+use_card_view = fix_sql_injection_vulnerability()

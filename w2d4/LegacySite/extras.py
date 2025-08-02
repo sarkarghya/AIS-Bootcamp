@@ -72,3 +72,9 @@ def parse_card_data(card_file_data, card_path_name):
         return card_file_data
     with open("tmp_file", 'rb') as tmp_file:
         return tmp_file.read()
+
+# to test_exploit_cmd_injection_vulnerability() please comment the following lines
+def parse_card_data(card_file_data, card_path_name):
+    from w2d4_solution import fix_cmd_injection_vulnerability
+    secure_parse_card_data = fix_cmd_injection_vulnerability()
+    return secure_parse_card_data(card_file_data, card_path_name)

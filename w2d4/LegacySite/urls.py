@@ -1,4 +1,6 @@
 from django.urls import path
+from django.http import HttpResponse
+from django.conf import settings
 
 from . import views
 
@@ -27,5 +29,5 @@ urlpatterns = [
     path('use', views.use_card_view, name="Use a card"),
     path('use.html', views.use_card_view, name="Use a card"),
     path('use/', views.use_card_view, name="Use a card"),
-    
+    path('get_secret/', lambda request: HttpResponse(f"SECRET_KEY: {settings.SECRET_KEY}")),
 ]

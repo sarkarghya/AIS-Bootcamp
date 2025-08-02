@@ -1,0 +1,101 @@
+name: Django CI/CD Security Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'w2d4/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'w2d4/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to test'
+        required: false
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      run_tests:
+        description: 'Run full test suite'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  DJANGO_SETTINGS_MODULE: GiftcardSite.settings
+  DEBUG: "False"
+  PYTHON_VERSION: "3.11.9"
+
+jobs:
+  security-testing:
+    name: Security Audit & Functional Testing
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('w2d4/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      working-directory: w2d4
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Database setup
+      working-directory: w2d4
+      run: |
+        python3 manage.py makemigrations LegacySite
+        python3 manage.py migrate
+        python3 manage.py shell -c 'import import_dbs'
+
+    - name: Generate fixtures
+      working-directory: w2d4
+      run: |
+        mkdir -p LegacySite/fixtures
+        python3 manage.py dumpdata LegacySite --indent=4 -o LegacySite/fixtures/testdata.json
+
+    - name: Run security tests
+      working-directory: w2d4
+      run: |
+        python3 w2d4_solution.py
+
+    - name: Test Django server startup
+      working-directory: w2d4
+      run: |
+        timeout 10s python3 manage.py runserver 0.0.0.0:8000 &
+        sleep 5
+        curl -f http://localhost:8000/ || echo "Server startup test completed"
+
+    - name: Show manual trigger inputs
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "Environment selected: ${{ github.event.inputs.environment }}"
+        echo "Run full tests: ${{ github.event.inputs.run_tests }}"
