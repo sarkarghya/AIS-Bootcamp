@@ -288,7 +288,6 @@ In this exercise, we'll exploit a reflected XSS vulnerability in the director pa
 - **Reflected XSS**: XSS where the payload is immediately returned in the response
 - **DOM**: Document Object Model - the structure of HTML elements in a web page
 - **Escaping**: Converting special characters to prevent them from being interpreted as code
-- **|safe filter**: Django template filter that marks content as safe (disables escaping)
 
 </details>
 
@@ -327,8 +326,8 @@ def exploit_xss_vulnerability():
         response = client.get(f'/buy/6?director={xss_payload}')
     else:
         # TODO: Create XSS payload and test vulnerable endpoint
-        # - Create a malicious JavaScript payload using <script> tags
-        # - Test the vulnerable endpoint with the payload in the director parameter
+        # - Create a malicious JavaScript payload
+        # - Replace the current response endpoint with the vulnerable one
         response = client.get(f'/buy/1')
     
     print(f"XSS exploit response status: {response.status_code}")
@@ -415,21 +414,12 @@ def test_exploit_xss_vulnerability():
 Implement the `fix_xss_vulnerability` function that fixes the XSS vulnerability by removing the unsafe |safe filter from Django templates.
 
 The vulnerability exists because Django templates use the |safe filter on user input, which disables HTML escaping. By removing this filter, Django will automatically escape special characters like < and > to prevent script injection.
-
-<details>
-<summary>Hints</summary>
-
-1. Look for template files that contain `{{ director|safe }}`
-2. Replace it with `{{ director }}` to enable automatic escaping
-3. Use regular expressions to find and replace the pattern
-4. Test both templates: gift.html and item-single.html
-
-</details>
 """
 
 def fix_xss_vulnerability():
     """
-    Fix XSS vulnerability by removing |safe filter from director parameter.
+    Fix XSS vulnerability by finding discepencies.
+    You can do it manually or edit the front end code.
     
     Args:
         None
@@ -450,12 +440,21 @@ def fix_xss_vulnerability():
                         f.write(re.sub(pattern, '{{ director }}', content))
                     print(f"Fixed {file_path}")
     else:
-        # TODO: Remove |safe filter from director parameter in templates
-        # - Find template files that contain {{ director|safe }}
-        # - Replace with {{ director }} to enable automatic escaping
-        # - Use regular expressions to find and replace the pattern
+        # TODO: Look for |safe filter in templates
+        # - What does `|` mean in this case
+        # - You can do it manually or use re.search within the code 
         pass
 
+"""
+<details>
+<summary>Hints</summary>
+
+1. Look at: gift.html and item-single.html
+2. What does `{{ director|safe }}` mean?
+3. |safe filter: Django template filter that marks content as safe (disables escaping)
+
+</details>
+"""
 
 def test_fix_xss_vulnerability():
     """Test for XSS vulnerability in the director parameter"""
@@ -829,21 +828,12 @@ CSRF protection typically involves:
 2. Enabling CSRF middleware
 3. Validating tokens on state-changing requests
 4. Setting secure cookie attributes
-
-<details>
-<summary>Hints</summary>
-
-1. Add `{% csrf_token %}` to all POST forms in templates
-2. Enable `django.middleware.csrf.CsrfViewMiddleware` in settings
-3. Add `@csrf_protect` decorator to vulnerable views
-4. Set `SESSION_COOKIE_SAMESITE = 'Strict'` in settings
-
-</details>
 """
 
 def fix_csrf_vulnerability():
     """
     Fix CSRF vulnerability by implementing comprehensive CSRF protection.
+    You can do it manually or edit the back end code.
     
     Args:
         None
@@ -962,11 +952,23 @@ def fix_csrf_vulnerability():
                 print(f"Fixed {settings_file}")
     else:
         # TODO: Implement CSRF protection with tokens, middleware, and security settings
-        # - Add CSRF tokens to all POST forms in templates
-        # - Enable CSRF middleware in Django settings
-        # - Add @csrf_protect decorators to vulnerable views
+        # - Add CSRF tokens to all necessary POST forms in templates
+        # - Enable CSRF middleware
+        # - Add possible decorators to vulnerable views
         # - Configure secure cookie settings
         pass
+
+"""
+<details>
+<summary>Hints</summary>
+
+1. Add `{% csrf_token %}` to all POST forms in templates
+2. Enable Csrf Middleware in settings
+3. Add `@csrf_protect` decorator to vulnerable views
+4. Set `SESSION_COOKIE_SAMESITE = 'Strict'` in settings
+
+</details>
+"""
 
 def test_fix_csrf_vulnerability():
     """Test for CSRF vulnerability by checking protection mechanisms"""
@@ -1155,10 +1157,8 @@ def exploit_ssrf_vulnerability():
         vulnerable_url = "http://127.0.0.1:8000/get_secret/"
         return vulnerable_url
     else:
-        # TODO: Create URL that targets internal service endpoint
-        # - Use localhost to target the same server
+        # TODO: Create URL that targets internal secrets
         # - Point to an internal endpoint that leaks sensitive information
-        # - Consider what endpoints might be available on the development server
         return "https://pastebin.com/gBXe38Et"
 
 def test_exploit_ssrf_vulnerability():
@@ -1298,21 +1298,12 @@ SSRF protection typically involves:
 4. Validating URL formats and paths
 5. Using DNS resolution checks
 
-<details>
-<summary>Hints</summary>
-
-1. Parse URLs using `urllib.parse.urlparse()`
-2. Only allow HTTPS protocol
-3. Whitelist specific domains (e.g., only pastebin.com)
-4. Validate URL path formats
-5. Block localhost and private IP ranges
-
-</details>
 """
 
 def fix_ssrf_vulnerability():
     """
     Fix SSRF vulnerability by adding comprehensive URL validation.
+    Feel free to edit `use_card_view(request)` here or in the server side code.
     
     Args:
         None
@@ -1655,6 +1646,19 @@ def fix_ssrf_vulnerability():
         # - Validate URL path formats for expected patterns
         return use_card_view
 
+"""
+<details>
+<summary>Hints</summary>
+
+1. Parse URLs using `urllib.parse.urlparse()`
+2. Only allow HTTPS protocol
+3. Whitelist specific domains (e.g., only pastebin.com)
+4. Validate URL path formats
+5. Block localhost and private IP ranges
+
+</details>
+"""
+
 def test_fix_ssrf_vulnerability():
     """Test that SSRF vulnerability has been fixed"""
     import importlib
@@ -1802,7 +1806,7 @@ def exploit_sql_injection_vulnerability():
         None
         
     Returns:
-        bytes: JSON-encoded card data with malicious SQL injection payload
+        bytes: JSON-encoded card data with malicious SQL injection payload to reveal admin password hash
     """
 
     if "SOLUTION":
@@ -1829,11 +1833,9 @@ def exploit_sql_injection_vulnerability():
         return card_json
     
     else:
-        # TODO: Create malicious card with SQL injection payload in signature
-        # - Create a SQL injection payload that breaks out of the original query
-        # - Use UNION SELECT to extract data from the user table
+        # TODO: Create malicious card with SQL injection payload
+        # - Create a payload that breaks out of the original query
         # - Target admin credentials from the database
-        # - Put the payload in the card signature field
         return {} # your card json
 
 def test_exploit_sql_injection_vulnerability():
@@ -1974,22 +1976,12 @@ SQL injection protection typically involves:
 3. Proper error handling to prevent information disclosure
 4. Authentication and authorization checks
 5. JSON validation for structured data
-
-<details>
-<summary>Hints</summary>
-
-1. Replace `Card.objects.raw()` with `Card.objects.filter()`
-2. Use Django ORM methods instead of string formatting in SQL
-3. Add JSON validation before processing card data
-4. Implement proper authentication checks
-5. Add input sanitization for card signatures
-
-</details>
 """
 
 def fix_sql_injection_vulnerability():
     """
     Fixed version of use_card_view that eliminates SQL injection vulnerabilities.
+    Feel free to edit `use_card_view(request)` here or in the server side code.
     
     Args:
         None
@@ -2397,12 +2389,24 @@ def fix_sql_injection_vulnerability():
                 return render(request, "use-card.html", context)
             return HttpResponse("Error 404: Internal Server Error")
 
-        # TODO: Replace raw SQL queries with Django ORM to prevent SQL injection
-        # - Replace Card.objects.raw() calls with safe ORM methods
-        # - Use parameterized queries instead of string formatting
-        # - Add proper authentication and authorization checks
+        # TODO: Replace raw SQL queries with Django ORM
+        # - Use safe ORM methods
+        # - Use parameterized queries
         # - Validate JSON data before processing
         return use_card_view
+
+"""
+<details>
+<summary>Hints</summary>
+
+1. Replace `Card.objects.raw()` with `Card.objects.filter()`
+2. Use Django ORM methods instead of string formatting in SQL
+3. Add JSON validation before processing card data
+4. Implement proper authentication checks
+5. Add input sanitization for card signatures
+
+</details>
+"""
 
 def test_fix_sql_injection_vulnerability():
     import importlib
@@ -2566,9 +2570,8 @@ def exploit_cmd_injection_vulnerability():
             'card_data': malformed_json.encode('utf-8')
         }
     else:
-        # TODO: Create malicious filename with shell metacharacters and malformed JSON
-        # - Use shell metacharacters in filename to inject commands
-        # - Create malformed JSON to trigger the vulnerable parsing code path
+        # TODO: Create malicious post parameters
+        # - Can shell metacharacters in filename to inject commands?
         # - Return POST parameters with malicious filename and card data
         malicious_filename = "my_malicious_gc"
         
@@ -2726,22 +2729,12 @@ Command injection protection typically involves:
 3. Whitelisting allowed characters/patterns
 4. Avoiding system() and shell commands
 5. Using timeouts for external processes
-
-<details>
-<summary>Hints</summary>
-
-1. Use `subprocess.run()` instead of `system()` or `os.popen()`
-2. Set `shell=False` to prevent shell interpretation
-3. Use `re.match()` to validate filename patterns
-4. Add timeout parameters to prevent hanging processes
-5. Use `capture_output=True` for safe output handling
-
-</details>
 """
 
 def fix_cmd_injection_vulnerability():
     """
     Fixed version of parse_card_data that eliminates command injection vulnerabilities.
+    Feel free to edit `parse_card_data(card_file_data, card_path_name)` here or in the server side code
     
     Args:
         None
@@ -2802,11 +2795,9 @@ def fix_cmd_injection_vulnerability():
         return parse_card_data
 
     else:
-        # TODO: Use subprocess with input validation instead of system() calls
-        # - Validate filename format using regex patterns
-        # - Replace system() calls with subprocess.run() with shell=False
+        # TODO: Perform filename validation
         # - Add timeout protection for external processes
-        # - Handle subprocess errors properly
+        # - Handle errors properly
         def parse_card_data(card_file_data, card_path_name):
             print(card_file_data)
             try:
@@ -2823,6 +2814,19 @@ def fix_cmd_injection_vulnerability():
                 return card_file_data
             with open("tmp_file", 'rb') as tmp_file:
                 return tmp_file.read()
+
+"""
+<details>
+<summary>Hints</summary>
+
+1. Use `subprocess.run()` instead of `system()` or `os.popen()`
+2. Set `shell=False` to prevent shell interpretation
+3. Use `re.match()` to validate filename patterns
+4. Add timeout parameters to prevent hanging processes
+5. Use `capture_output=True` for safe output handling
+
+</details>
+"""
 
 def test_fix_cmd_injection_vulnerability():
     import importlib
@@ -2931,13 +2935,14 @@ if __name__ == '__main__':
     test_fix_csrf_vulnerability()
     
     print("\n\nTesting SSRF vulnerability exploitation...")
+    # Please comment the lines in LegacySite/views.py in SOLUTION mode to see proper exploit
     test_exploit_ssrf_vulnerability()
     
     print("\n\nTesting SSRF vulnerability fix...")
     test_fix_ssrf_vulnerability()
 
     print("\n\nTesting SQL injection vulnerability exploitation...")
-    # Please comment the last two lines in LegacySite/views.py in SOLUTION mode to see proper exploit
+    # Please comment the lines in LegacySite/views.py in SOLUTION mode to see proper exploit
     test_exploit_sql_injection_vulnerability()
     
     print("\n\nTesting SQL injection vulnerability fix...")
