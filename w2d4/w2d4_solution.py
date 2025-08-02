@@ -2405,8 +2405,6 @@ def fix_sql_injection_vulnerability():
         return use_card_view
 
 def test_fix_sql_injection_vulnerability():
-    print("Testing SQL injection vulnerability fix...")
-
     import importlib
     from LegacySite import views
     importlib.reload(views)
@@ -2674,7 +2672,12 @@ def test_exploit_cmd_injection_vulnerability():
 
             print(f"Command injection response status: {response.status_code}")
             
-            # Check if the 'pwned' file was created (indicating successful command execution
+            # Check if we got a Bad Request (400) - this indicates the security fix is working
+            if response.status_code == 400:
+                print("[-] Command injection payload was blocked by input validation")
+                print("[-] Bad Request response indicates security fix is working")
+                return False
+                
         except json.decoder.JSONDecodeError as e:
             print(f"JSON decode error: {e}; This error is the source of the exploit")
             if os.path.exists(pwned_file):
@@ -2822,8 +2825,6 @@ def fix_cmd_injection_vulnerability():
                 return tmp_file.read()
 
 def test_fix_cmd_injection_vulnerability():
-    print("Testing CMD injection vulnerability fix...")
-
     import importlib
     from LegacySite import views
     importlib.reload(views)
